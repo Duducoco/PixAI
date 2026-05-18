@@ -59,6 +59,7 @@ describe('prompt library', () => {
   it('filters by query, category, ratio and quality', () => {
     expect(filterPromptTemplates(PROMPT_TEMPLATES, { query: '贴纸' }).map((template) => template.id)).toEqual(['sticker-sheet'])
     expect(filterPromptTemplates(PROMPT_TEMPLATES, { category: '产品摄影', ratio: '4:3' }).map((template) => template.id)).toEqual(['minimal-product-shot'])
+    expect(filterPromptTemplates(PROMPT_TEMPLATES, { model: 'gpt-image-2' })).toHaveLength(PROMPT_TEMPLATES.length)
     expect(filterPromptTemplates(PROMPT_TEMPLATES, { quality: 'medium' }).map((template) => template.id)).toEqual([
       'storyboard-grid',
       'infographic-product',
@@ -69,6 +70,7 @@ describe('prompt library', () => {
   it('keeps prompt text and resolution together', () => {
     const template = PROMPT_TEMPLATES[0]
     expect(template.prompt).toContain('奢华腕表广告海报')
+    expect(template.model).toBe('gpt-image-2')
     expect(template.resolution).toBe('1024x1024')
   })
 
@@ -83,6 +85,7 @@ describe('prompt library', () => {
       description: '',
       prompt: '中文提示词',
       tags: ['测试'],
+      model: 'gpt-image-2',
       ratio: '1:1',
       resolution: '1024x1024',
       quality: 'high'
@@ -98,9 +101,55 @@ describe('prompt library', () => {
       title: '贴纸包（已更新）'
     })
     expect(updated.title).toBe('贴纸包（已更新）')
+    expect(updated.model).toBe('gpt-image-2')
 
     deletePromptLibraryItem(created.id)
     expect(getPromptLibraryItems().some((item) => item.id === created.id)).toBe(false)
+  })
+
+  it('supports Gemini model and resolution in custom templates', () => {
+    window.localStorage.clear()
+    getPromptLibraryItems()
+
+    const created = createPromptLibraryItem({
+      ...createEmptyPromptTemplateInput({
+        model: 'gemini-3-pro-image-preview',
+        ratio: '16:9',
+        resolution: '4K'
+      }),
+      title: 'Gemini 模板',
+      category: '测试分类',
+      prompt: 'Gemini image prompt'
+    })
+
+    expect(created.model).toBe('gemini-3-pro-image-preview')
+    expect(created.resolution).toBe('4K')
+    expect(filterPromptTemplates(getPromptLibraryItems(), { model: 'gemini-3-pro-image-preview' }).map((item) => item.id)).toEqual([created.id])
+    expect(filterPromptTemplates(getPromptLibraryItems(), { query: 'Gemini 3 Pro' }).map((item) => item.id)).toEqual([created.id])
+  })
+
+  it('migrates legacy templates without a model to gpt-image-2', () => {
+    window.localStorage.setItem('pixai.prompt-library.items.v1', JSON.stringify([
+      {
+        id: 'legacy-template',
+        title: '旧模板',
+        category: '旧分类',
+        description: '',
+        prompt: 'legacy prompt',
+        tags: [],
+        ratio: '1:1',
+        resolution: '1024x1024',
+        quality: 'auto'
+      }
+    ]))
+
+    expect(getPromptLibraryItems()).toEqual([
+      expect.objectContaining({
+        id: 'legacy-template',
+        model: 'gpt-image-2',
+        resolution: '1024x1024'
+      })
+    ])
   })
 })
 

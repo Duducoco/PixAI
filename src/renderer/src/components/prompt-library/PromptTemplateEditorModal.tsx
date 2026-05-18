@@ -2,9 +2,27 @@ import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { X } from 'lucide-react'
 import type { PromptTemplate, PromptTemplateInput } from '@renderer/prompt-library'
-import { IMAGE_QUALITIES, formatImageQuality, getDefaultImageSize, getImageSizeOptions } from '@shared/image-options'
+import {
+  IMAGE_MODEL_LABELS,
+  IMAGE_QUALITIES,
+  formatImageQuality,
+  getDefaultSizeForModel,
+  getGeminiSizeOptions,
+  getImageSizeOptions,
+  getProviderModelOptions,
+  isGeminiModel,
+  normalizeImageSizeForModel
+} from '@shared/image-options'
 import { GallerySelect, type GallerySelectOption } from '@renderer/components/gallery/GallerySelect'
 import { EditableMultiSelect, EditableSelect } from '@renderer/components/common/EditableSelect'
+
+const modelOptions: Array<GallerySelectOption<PromptTemplate['model']>> = [
+  ...getProviderModelOptions('gpt'),
+  ...getProviderModelOptions('gemini')
+].map((model) => ({
+  value: model,
+  label: IMAGE_MODEL_LABELS[model] || model
+}))
 
 const ratioOptions: Array<GallerySelectOption<PromptTemplate['ratio']>> = [
   { value: '1:1', label: '1:1' },
@@ -62,7 +80,10 @@ export function PromptTemplateEditorModal({
     () => Array.from(new Set(categoryOptions.map((item) => item.trim()).filter(Boolean))),
     [categoryOptions]
   )
-  const resolutionOptions = useMemo(() => getImageSizeOptions(form.ratio), [form.ratio])
+  const resolutionOptions = useMemo(
+    () => (isGeminiModel(form.model) ? getGeminiSizeOptions() : getImageSizeOptions(form.ratio)),
+    [form.model, form.ratio]
+  )
 
   const submit = async () => {
     const nextErrors = validatePromptTemplateInput(form)
@@ -72,19 +93,24 @@ export function PromptTemplateEditorModal({
     await onSave({
       ...form,
       tags: form.tags.filter(Boolean),
-      resolution: normalizeResolution(form.ratio, form.resolution)
+      resolution: normalizeResolution(form.model, form.ratio, form.resolution)
     })
   }
 
+  const updateModel = (model: PromptTemplate['model']) => {
+    setForm((current) => ({
+      ...current,
+      model,
+      resolution: normalizeResolution(model, current.ratio, current.resolution)
+    }))
+  }
+
   const updateRatio = (ratio: PromptTemplate['ratio']) => {
-    setForm((current) => {
-      const currentResolutionValid = getImageSizeOptions(ratio).some((option) => option.value === current.resolution)
-      return {
-        ...current,
-        ratio,
-        resolution: currentResolutionValid ? current.resolution : getDefaultImageSize(ratio)
-      }
-    })
+    setForm((current) => ({
+      ...current,
+      ratio,
+      resolution: normalizeResolution(current.model, ratio, current.resolution)
+    }))
   }
 
   const content = (
@@ -113,6 +139,16 @@ export function PromptTemplateEditorModal({
             {errors.title ? <span className="field-error">{errors.title}</span> : null}
           </label>
           <div className="prompt-editor-row">
+            <label className="field prompt-editor-model-field">
+              <span>模型</span>
+              <GallerySelect
+                value={form.model}
+                options={modelOptions}
+                ariaLabel="模型"
+                className="settings-select"
+                onChange={(model) => updateModel(model)}
+              />
+            </label>
             <label className="field">
               <span>比例</span>
               <GallerySelect
@@ -202,8 +238,8 @@ export function PromptTemplateEditorModal({
   return typeof document === 'undefined' ? content : createPortal(content, document.body)
 }
 
-function normalizeResolution(ratio: PromptTemplate['ratio'], value: string): string {
-  return getImageSizeOptions(ratio).some((option) => option.value === value) ? value : getDefaultImageSize(ratio)
+function normalizeResolution(model: PromptTemplate['model'], ratio: PromptTemplate['ratio'], value: string): string {
+  return normalizeImageSizeForModel(model, ratio, value || getDefaultSizeForModel(model, ratio))
 }
 
 function validatePromptTemplateInput(input: PromptTemplateInput): Partial<Record<'title' | 'category' | 'prompt', string>> {

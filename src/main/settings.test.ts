@@ -17,10 +17,19 @@ describe('settings store', () => {
     const store = createStore()
 
     expect(store.getPublicSettings()).toMatchObject({
+      id: 'default-gpt',
+      name: 'GPT 默认',
       provider: 'gpt',
       baseURL: 'https://api.openai.com',
       defaultModel: 'gpt-image-2',
-      promptModel: 'gpt-5.4-mini'
+      promptModel: 'gpt-5.4-mini',
+      activeProfileId: 'default-gpt',
+      profiles: [
+        expect.objectContaining({
+          id: 'default-gpt',
+          name: 'GPT 默认'
+        })
+      ]
     })
   })
 
@@ -50,6 +59,47 @@ describe('settings store', () => {
     expect(gptSettings.defaultModel).toBe('gpt-image-2')
   })
 
+  it('creates and selects service profiles', () => {
+    const store = createStore()
+
+    const created = store.createProfile({
+      name: 'Gemini 工作',
+      provider: 'gemini',
+      apiKey: 'gemini-key'
+    })
+
+    expect(created).toMatchObject({
+      name: 'Gemini 工作',
+      provider: 'gemini',
+      defaultModel: 'gemini-3.1-flash-image-preview',
+      apiKeyStored: true
+    })
+    expect(created.profiles).toHaveLength(2)
+    expect(store.getApiKey()).toBe('gemini-key')
+
+    const gptProfile = created.profiles.find((profile) => profile.provider === 'gpt')
+    expect(gptProfile).toBeTruthy()
+    const selected = store.selectProfile(gptProfile!.id)
+
+    expect(selected.provider).toBe('gpt')
+    expect(store.getApiKey()).toBeNull()
+  })
+
+  it('updates and deletes the active service profile', () => {
+    const store = createStore()
+    const created = store.createProfile({ provider: 'gemini', name: 'Gemini 临时' })
+
+    const updated = store.update({ name: 'Gemini 正式', promptModel: 'gemini-3.1-flash' })
+
+    expect(updated.name).toBe('Gemini 正式')
+    expect(updated.promptModel).toBe('gemini-3.1-flash')
+
+    const afterDelete = store.deleteProfile(created.activeProfileId)
+
+    expect(afterDelete.provider).toBe('gpt')
+    expect(afterDelete.profiles).toHaveLength(1)
+  })
+
   it('infers provider from old settings files without a provider field', () => {
     const filePath = createSettingsFile()
     writeFileSync(filePath, JSON.stringify({
@@ -62,7 +112,13 @@ describe('settings store', () => {
 
     expect(store.getPublicSettings()).toMatchObject({
       provider: 'gemini',
-      defaultModel: 'gemini-2.5-flash-image'
+      defaultModel: 'gemini-2.5-flash-image',
+      profiles: [
+        expect.objectContaining({
+          provider: 'gemini',
+          defaultModel: 'gemini-2.5-flash-image'
+        })
+      ]
     })
   })
 })

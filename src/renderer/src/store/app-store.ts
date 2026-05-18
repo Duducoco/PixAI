@@ -7,6 +7,7 @@ import {
   getDefaultGeminiSize,
   getDefaultImageSize,
   getDefaultSizeForModel,
+  getModelProvider,
   getProviderModelOptions,
   isGeminiModel,
   normalizeImageSizeForModel,
@@ -83,6 +84,9 @@ type AppState = {
   deleteConversation: (id: string) => Promise<void>
   updateActiveConversation: (input: ConversationUpdate) => Promise<void>
   updateSettings: (input: ProviderSettingsUpdate) => Promise<void>
+  createSettingsProfile: (input?: ProviderSettingsUpdate) => Promise<void>
+  selectSettingsProfile: (id: string) => Promise<void>
+  deleteSettingsProfile: (id: string) => Promise<void>
   importReferenceFiles: (files: File[]) => Promise<void>
   addHistoryAsReference: (historyId: string) => Promise<void>
   removeReferenceImage: (referenceImageId: string) => Promise<void>
@@ -307,7 +311,36 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateSettings: async (input) => {
     const settings = await window.pixai.settings.update(input)
     set({ settings })
-    get().notify('设置已保存')
+    get().notify('服务配置已保存')
+  },
+  createSettingsProfile: async (input = {}) => {
+    const settings = await window.pixai.settings.createProfile(input)
+    set({ settings })
+    get().notify('已新增服务配置')
+  },
+  selectSettingsProfile: async (id) => {
+    const settings = await window.pixai.settings.selectProfile(id)
+    set({ settings })
+    const conversation = get().conversations.find((item) => item.id === get().activeConversationId)
+    if (conversation && conversation.model !== settings.defaultModel) {
+      await get().updateActiveConversation({
+        model: settings.defaultModel,
+        size: isGeminiModel(settings.defaultModel) ? getDefaultGeminiSize() : getDefaultImageSize(conversation.ratio)
+      })
+    }
+    get().notify(`已切换到「${settings.name}」`)
+  },
+  deleteSettingsProfile: async (id) => {
+    const settings = await window.pixai.settings.deleteProfile(id)
+    set({ settings })
+    const conversation = get().conversations.find((item) => item.id === get().activeConversationId)
+    if (conversation && getModelProvider(conversation.model) !== settings.provider) {
+      await get().updateActiveConversation({
+        model: settings.defaultModel,
+        size: isGeminiModel(settings.defaultModel) ? getDefaultGeminiSize() : getDefaultImageSize(conversation.ratio)
+      })
+    }
+    get().notify('已删除服务配置')
   },
   importReferenceFiles: async (files) => {
     const id = get().activeConversationId
@@ -376,11 +409,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   applyPromptTemplate: async (template) => {
     const state = get()
     let conversation = state.conversations.find((item) => item.id === state.activeConversationId) || null
+    const model = template.model || DEFAULT_MODEL
+    const size = normalizeImageSizeForModel(model, template.ratio, template.resolution)
     if (!conversation) {
       await get().createConversation(
         {
+          model,
           ratio: template.ratio,
-          size: template.resolution || getDefaultImageSize(template.ratio),
+          size,
           quality: template.quality
         },
         { silent: true }
@@ -391,8 +427,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const patch: ConversationUpdate = {
       draftPrompt: template.prompt,
+      model,
       ratio: template.ratio,
-      size: template.resolution || getDefaultImageSize(template.ratio),
+      size,
       quality: template.quality
     }
     if (conversation.title === '新会话') {
@@ -446,6 +483,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const conversation = state.conversations.find((item) => item.id === state.activeConversationId)
     if (!conversation) return
     const generationStartedAt = Date.now()
+    const rawModel = conversation.model.trim() || state.settings?.defaultModel || DEFAULT_MODEL
+    if (state.settings && getModelProvider(rawModel) !== state.settings.provider) {
+      const providerName = getModelProvider(rawModel) === 'gemini' ? 'Gemini' : 'GPT'
+      get().notify(`当前模板使用 ${providerName} 模型，请先在服务配置中切换平台`)
+      return
+    }
     set({ generationClockMs: generationStartedAt })
     startGenerationClock()
     const prompt = conversation.draftPrompt.trim()
