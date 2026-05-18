@@ -1,54 +1,77 @@
 import { useEffect, useState, type JSX } from 'react'
 import { CircleHelp, Settings } from 'lucide-react'
 import {
+  DEFAULT_API_PROVIDER,
+  DEFAULT_GPT_BASE_URL,
   DEFAULT_IMAGE_OUTPUT_FORMAT,
+  DEFAULT_MODEL,
+  IMAGE_BACKGROUND_LABELS,
   MAX_IMAGE_MAX_RETRIES,
   IMAGE_BACKGROUNDS,
   IMAGE_INPUT_FIDELITIES,
+  IMAGE_MODEL_LABELS,
   IMAGE_MODERATIONS,
   IMAGE_OUTPUT_FORMATS,
   IMAGE_QUALITIES,
   IMAGE_RATIOS,
   formatImageQuality,
+  getDefaultGeminiSize,
   getDefaultImageSize,
+  getGeminiSizeOptions,
   getImageSizeOptions,
-  IMAGE_BACKGROUND_LABELS,
+  getModelProvider,
+  getProviderBaseURL,
+  getProviderDefaultModel,
+  getProviderModelOptions,
   IMAGE_INPUT_FIDELITY_LABELS,
   IMAGE_MODERATION_LABELS,
   IMAGE_OUTPUT_FORMAT_LABELS,
+  isGeminiModel,
+  normalizeProviderModel,
   supportsImageInputFidelity
 } from '@shared/image-options'
 import { DEFAULT_PROMPT_MODEL } from '@shared/prompt-options'
-import type { ImageQuality, ImageRatio } from '@shared/types'
+import type { ApiProvider, ImageQuality, ImageRatio } from '@shared/types'
 import { useAppStore } from '@renderer/store/app-store'
 import { GallerySelect } from '@renderer/components/gallery/GallerySelect'
 
 const ratios: ImageRatio[] = IMAGE_RATIOS
 const qualities: ImageQuality[] = IMAGE_QUALITIES
+const providerOptions: Array<{ value: ApiProvider; label: string }> = [
+  { value: 'gpt', label: 'GPT' },
+  { value: 'gemini', label: 'Gemini' }
+]
 
 export function SettingsPanel(): JSX.Element {
   const { settings, conversations, activeConversationId, updateActiveConversation, updateSettings } = useAppStore()
   const conversation = conversations.find((item) => item.id === activeConversationId) || null
   const isImageToImage = (conversation?.referenceImages.length || 0) > 0
-  const [baseURL, setBaseURL] = useState(settings?.baseURL || 'https://api.openai.com')
-  const [defaultModel, setDefaultModel] = useState(settings?.defaultModel || 'gpt-image-2')
+  const [provider, setProvider] = useState<ApiProvider>(settings?.provider || DEFAULT_API_PROVIDER)
+  const [baseURL, setBaseURL] = useState(settings?.baseURL || DEFAULT_GPT_BASE_URL)
+  const [defaultModel, setDefaultModel] = useState(settings?.defaultModel || DEFAULT_MODEL)
   const [promptModel, setPromptModel] = useState(settings?.promptModel || DEFAULT_PROMPT_MODEL)
   const [apiKey, setApiKey] = useState('')
 
   useEffect(() => {
     if (settings) {
-      setBaseURL(settings.baseURL)
-      setDefaultModel(settings.defaultModel)
+      const nextProvider = settings.provider || getModelProvider(settings.defaultModel)
+      setProvider(nextProvider)
+      setBaseURL(settings.baseURL || getProviderBaseURL(nextProvider))
+      setDefaultModel(normalizeProviderModel(nextProvider, settings.defaultModel))
       setPromptModel(settings.promptModel)
     }
   }, [settings])
 
   if (!conversation) return <aside className="inspector" />
 
-  const sizeOptions = getImageSizeOptions(conversation.ratio)
-  const selectedSize = sizeOptions.some((option) => option.value === conversation.size)
-    ? conversation.size
-    : getDefaultImageSize(conversation.ratio)
+  const selectedDefaultModel = normalizeProviderModel(provider, defaultModel)
+  const activeProvider = settings?.provider || provider
+  const conversationModel = normalizeProviderModel(activeProvider, conversation.model || getProviderDefaultModel(activeProvider))
+  const geminiMode = isGeminiModel(conversationModel)
+  const sizeOptions = geminiMode ? getGeminiSizeOptions() : getImageSizeOptions(conversation.ratio)
+  const selectedSize = geminiMode
+    ? (sizeOptions.some((option) => option.value === conversation.size) ? conversation.size : getDefaultGeminiSize())
+    : (sizeOptions.some((option) => option.value === conversation.size) ? conversation.size : getDefaultImageSize(conversation.ratio))
 
   return (
     <aside className="inspector">
@@ -58,6 +81,20 @@ export function SettingsPanel(): JSX.Element {
             服务配置
             <span className={`pill ${settings?.apiKeyStored ? 'good' : 'warn'}`}>{settings?.apiKeyStored ? '已配置' : '未配置'}</span>
           </h3>
+          <label className="field">
+            <span>平台</span>
+            <GallerySelect
+              value={provider}
+              options={providerOptions}
+              ariaLabel="选择平台"
+              className="settings-select"
+              onChange={(nextProvider) => {
+                setProvider(nextProvider)
+                setBaseURL(getProviderBaseURL(nextProvider))
+                setDefaultModel(getProviderDefaultModel(nextProvider))
+              }}
+            />
+          </label>
           <label className="field">
             <span>Base URL</span>
             <input className="input-control" value={baseURL} onChange={(event) => setBaseURL(event.target.value)} />
@@ -74,7 +111,13 @@ export function SettingsPanel(): JSX.Element {
           </label>
           <label className="field">
             <span>图片默认模型</span>
-            <input className="input-control" value={defaultModel} onChange={(event) => setDefaultModel(event.target.value)} />
+            <GallerySelect
+              value={selectedDefaultModel}
+              options={getProviderModelOptions(provider).map((value) => ({ value, label: IMAGE_MODEL_LABELS[value] || value }))}
+              ariaLabel="选择图片默认模型"
+              className="settings-select"
+              onChange={setDefaultModel}
+            />
           </label>
           <label className="field">
             <span>提示词助手模型</span>
@@ -84,8 +127,22 @@ export function SettingsPanel(): JSX.Element {
           <button
             className="primary full"
             onClick={() => {
-              void updateSettings({ baseURL, defaultModel, promptModel, apiKey: apiKey.trim() ? apiKey : undefined })
-              setApiKey('')
+              void (async () => {
+                await updateSettings({
+                  provider,
+                  baseURL,
+                  defaultModel: selectedDefaultModel,
+                  promptModel,
+                  apiKey: apiKey.trim() ? apiKey : undefined
+                })
+                if (conversation.model !== selectedDefaultModel) {
+                  await updateActiveConversation({
+                    model: selectedDefaultModel,
+                    size: isGeminiModel(selectedDefaultModel) ? getDefaultGeminiSize() : getDefaultImageSize(conversation.ratio)
+                  })
+                }
+                setApiKey('')
+              })()
             }}
           >
             <Settings size={15} />
@@ -96,10 +153,15 @@ export function SettingsPanel(): JSX.Element {
           <h3>当前会话参数</h3>
           <label className="field">
             <span>模型</span>
-            <input
-              className="input-control"
-              value={conversation.model}
-              onChange={(event) => void updateActiveConversation({ model: event.target.value })}
+            <GallerySelect
+              value={conversationModel}
+              options={getProviderModelOptions(activeProvider).map((value) => ({ value, label: IMAGE_MODEL_LABELS[value] || value }))}
+              ariaLabel="选择当前会话模型"
+              className="settings-select"
+              onChange={(model) => void updateActiveConversation({
+                model,
+                size: isGeminiModel(model) ? getDefaultGeminiSize() : getDefaultImageSize(conversation.ratio)
+              })}
             />
           </label>
           <div className="field">
@@ -109,7 +171,7 @@ export function SettingsPanel(): JSX.Element {
                 <button
                   key={ratio}
                   className={conversation.ratio === ratio ? 'on' : ''}
-                  onClick={() => void updateActiveConversation({ ratio, size: getDefaultImageSize(ratio) })}
+                  onClick={() => void updateActiveConversation({ ratio, size: geminiMode ? getDefaultGeminiSize() : getDefaultImageSize(ratio) })}
                 >
                   {ratio}
                 </button>
@@ -185,6 +247,16 @@ export function SettingsPanel(): JSX.Element {
                 checked={conversation.stream}
                 onChange={() => void updateActiveConversation({ stream: !conversation.stream })}
               />
+              {isImageToImage ? (
+                <ToggleRow
+                  label="逐张参考图生成"
+                  help={`开启后同一提示词会分别作用于每张参考图；总输出为参考图数量 × 生成数量。`}
+                  checked={conversation.referenceImageMode === 'per-reference'}
+                  onChange={() => void updateActiveConversation({
+                    referenceImageMode: conversation.referenceImageMode === 'per-reference' ? 'combined' : 'per-reference'
+                  })}
+                />
+              ) : null}
               <label className="field">
                 <span className="field-label-with-help">
                   <span>超时时间(秒)</span>

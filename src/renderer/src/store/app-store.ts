@@ -4,8 +4,14 @@ import {
   DEFAULT_IMAGE_OUTPUT_FORMAT,
   DEFAULT_MODEL,
   MAX_IMAGE_MAX_RETRIES,
+  getDefaultGeminiSize,
   getDefaultImageSize,
-  normalizeImageGenerationTimeoutSeconds
+  getDefaultSizeForModel,
+  getProviderModelOptions,
+  isGeminiModel,
+  normalizeImageSizeForModel,
+  normalizeImageGenerationTimeoutSeconds,
+  normalizeProviderModel
 } from '@shared/image-options'
 import type {
   Conversation,
@@ -116,6 +122,19 @@ function collectRunningRunIds(runsByConversation: Record<string, GenerationRun[]
     .flatMap((runs) => runs.filter((run) => run.status === 'running').map((run) => run.id))
 }
 
+function resolveConversationModelForSettings(
+  conversationModel: string | null | undefined,
+  settings: ProviderSettings | null
+): string {
+  const trimmedConversationModel = conversationModel?.trim() || ''
+  if (!settings) return trimmedConversationModel || DEFAULT_MODEL
+
+  const provider = settings.provider
+  const providerModels = getProviderModelOptions(provider)
+  if (providerModels.includes(trimmedConversationModel)) return trimmedConversationModel
+  return normalizeProviderModel(provider, settings.defaultModel)
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   view: 'workspace',
   settingsVisible: true,
@@ -141,7 +160,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ loading: true })
     const settings = await window.pixai.settings.get()
     let conversations = await window.pixai.conversation.list()
-    if (conversations.length === 0) conversations = [await window.pixai.conversation.create()]
+    if (conversations.length === 0) {
+      conversations = [await window.pixai.conversation.create({
+        model: settings.defaultModel,
+        size: isGeminiModel(settings.defaultModel) ? getDefaultGeminiSize() : undefined
+      })]
+    }
     const activeConversationId = get().activeConversationId || conversations[0]?.id || null
     const runs = activeConversationId ? await window.pixai.conversation.runs(activeConversationId) : []
     const history = await window.pixai.history.list({ sort: get().sort })
@@ -175,11 +199,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   createConversation: async (template = {}, options = {}) => {
     const current = get().conversations.find((item) => item.id === get().activeConversationId) || get().conversations[0] || null
+    const settings = get().settings
+    const ratio = template.ratio ?? current?.ratio ?? '1:1'
+    const model = template.model ?? resolveConversationModelForSettings(current?.model, settings)
+    const rawSize = template.size ?? current?.size ?? getDefaultSizeForModel(model, ratio)
     const conversation = await window.pixai.conversation.create({
-      ratio: template.ratio ?? current?.ratio,
-      size: template.size ?? current?.size,
+      ratio,
+      size: normalizeImageSizeForModel(model, ratio, rawSize),
       quality: template.quality ?? current?.quality,
-      model: template.model ?? current?.model,
+      model,
       n: template.n ?? current?.n,
       outputFormat: template.outputFormat ?? current?.outputFormat,
       outputCompression: template.outputCompression ?? current?.outputCompression,
@@ -188,6 +216,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       stream: template.stream ?? current?.stream,
       partialImages: template.partialImages ?? current?.partialImages,
       inputFidelity: template.inputFidelity ?? current?.inputFidelity,
+      referenceImageMode: template.referenceImageMode ?? current?.referenceImageMode,
       maxRetries: template.maxRetries ?? current?.maxRetries,
       generationTimeoutSeconds: template.generationTimeoutSeconds ?? current?.generationTimeoutSeconds,
       autoSaveHistory: template.autoSaveHistory ?? current?.autoSaveHistory,
@@ -222,6 +251,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         stream: deletedConversation?.stream,
         partialImages: deletedConversation?.partialImages,
         inputFidelity: deletedConversation?.inputFidelity,
+        referenceImageMode: deletedConversation?.referenceImageMode,
         maxRetries: deletedConversation?.maxRetries,
         generationTimeoutSeconds: deletedConversation?.generationTimeoutSeconds,
         autoSaveHistory: deletedConversation?.autoSaveHistory,
@@ -419,12 +449,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ generationClockMs: generationStartedAt })
     startGenerationClock()
     const prompt = conversation.draftPrompt.trim()
+    const model = resolveConversationModelForSettings(conversation.model, state.settings)
     const input: GenerateImageInput = {
       conversationId: conversation.id,
       prompt,
-      model: conversation.model || state.settings?.defaultModel || DEFAULT_MODEL,
+      model,
       ratio: conversation.ratio,
-      size: conversation.size || getDefaultImageSize(conversation.ratio),
+      size: normalizeImageSizeForModel(model, conversation.ratio, conversation.size),
       quality: conversation.quality,
       n: conversation.n,
       outputCompression: conversation.outputCompression ?? undefined,
@@ -433,6 +464,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       stream: conversation.stream,
       partialImages: conversation.stream && conversation.partialImages ? conversation.partialImages : undefined,
       inputFidelity: conversation.inputFidelity ?? undefined,
+      referenceImageMode: conversation.referenceImageMode,
       maxRetries: conversation.maxRetries,
       generationTimeoutSeconds: conversation.generationTimeoutSeconds,
       outputFormat: conversation.outputFormat || DEFAULT_IMAGE_OUTPUT_FORMAT,
@@ -638,7 +670,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       draftPrompt: item.prompt,
       model: item.model,
       ratio: item.ratio,
-      size: item.size || getDefaultImageSize(item.ratio),
+      size: item.size ? normalizeImageSizeForModel(item.model, item.ratio, item.size) : getDefaultSizeForModel(item.model, item.ratio),
       quality: item.quality
     })
     const conversations = await window.pixai.conversation.list()

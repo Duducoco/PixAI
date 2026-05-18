@@ -23,6 +23,12 @@ export function Composer({ conversation, generating }: { conversation: Conversat
   const [dropActive, setDropActive] = useState(false)
   const [previewReferenceId, setPreviewReferenceId] = useState<string | null>(null)
   const referenceCount = conversation.referenceImages.length
+  const perReferenceMode = referenceCount > 0 && conversation.referenceImageMode === 'per-reference'
+  const generationModeLabel = referenceCount > 0
+    ? perReferenceMode
+      ? `逐张图生图 · ${referenceCount} 张参考图 · 共 ${referenceCount * conversation.n} 张`
+      : `图生图 · ${referenceCount} 张参考图`
+    : '文生图'
   const submit = (event: FormEvent) => {
     event.preventDefault()
     void generate()
@@ -95,7 +101,7 @@ export function Composer({ conversation, generating }: { conversation: Conversat
         <div className="composer-tools">
           <span className="pill good">
             <Sparkles size={13} />
-            {referenceCount > 0 ? `图生图 · ${referenceCount} 张参考图` : '文生图'}
+            {generationModeLabel}
           </span>
           <span className="pill blue">{formatImageSize(conversation.size)}</span>
           <span className="pill">已保存</span>

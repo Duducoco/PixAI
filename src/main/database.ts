@@ -86,6 +86,7 @@ export class AppDatabase {
       stream: input.stream || false,
       partialImages: input.partialImages ?? 0,
       inputFidelity: input.inputFidelity ?? null,
+      referenceImageMode: input.referenceImageMode ?? 'combined',
       maxRetries: normalizeRetryCount(input.maxRetries),
       generationTimeoutSeconds: normalizeImageGenerationTimeoutSeconds(input.generationTimeoutSeconds),
       autoSaveHistory: input.autoSaveHistory ?? true,
@@ -97,8 +98,8 @@ export class AppDatabase {
     this.db
       .prepare(
         `insert into conversations
-        (id, title, draft_prompt, model, ratio, size, quality, n, output_format, output_compression, background, moderation, stream, partial_images, input_fidelity, max_retries, generation_timeout_seconds, auto_save_history, keep_failure_details, created_at, updated_at)
-        values (@id, @title, @draftPrompt, @model, @ratio, @size, @quality, @n, @outputFormat, @outputCompression, @background, @moderation, @stream, @partialImages, @inputFidelity, @maxRetries, @generationTimeoutSeconds, @autoSaveHistory, @keepFailureDetails, @createdAt, @updatedAt)`
+        (id, title, draft_prompt, model, ratio, size, quality, n, output_format, output_compression, background, moderation, stream, partial_images, input_fidelity, reference_image_mode, max_retries, generation_timeout_seconds, auto_save_history, keep_failure_details, created_at, updated_at)
+        values (@id, @title, @draftPrompt, @model, @ratio, @size, @quality, @n, @outputFormat, @outputCompression, @background, @moderation, @stream, @partialImages, @inputFidelity, @referenceImageMode, @maxRetries, @generationTimeoutSeconds, @autoSaveHistory, @keepFailureDetails, @createdAt, @updatedAt)`
       )
       .run({
         ...conversation,
@@ -125,6 +126,7 @@ export class AppDatabase {
       stream: input.stream !== undefined ? input.stream : current.stream,
       partialImages: input.partialImages !== undefined ? input.partialImages : current.partialImages,
       inputFidelity: input.inputFidelity !== undefined ? input.inputFidelity : current.inputFidelity,
+      referenceImageMode: input.referenceImageMode !== undefined ? input.referenceImageMode : current.referenceImageMode,
       maxRetries: input.maxRetries !== undefined ? normalizeRetryCount(input.maxRetries) : current.maxRetries,
       generationTimeoutSeconds:
         input.generationTimeoutSeconds !== undefined
@@ -149,6 +151,7 @@ export class AppDatabase {
         stream = @stream,
         partial_images = @partialImages,
         input_fidelity = @inputFidelity,
+        reference_image_mode = @referenceImageMode,
         max_retries = @maxRetries,
         generation_timeout_seconds = @generationTimeoutSeconds,
         auto_save_history = @autoSaveHistory,
@@ -453,6 +456,7 @@ export class AppDatabase {
         stream integer not null default 0,
         partial_images integer not null default 0,
         input_fidelity text,
+        reference_image_mode text not null default 'combined',
         max_retries integer not null default 0,
         generation_timeout_seconds integer not null default 300,
         auto_save_history integer not null,
@@ -558,6 +562,9 @@ export class AppDatabase {
     if (!conversationColumns.some((column) => column.name === 'input_fidelity')) {
       this.db.exec('alter table conversations add column input_fidelity text')
     }
+    if (!conversationColumns.some((column) => column.name === 'reference_image_mode')) {
+      this.db.exec("alter table conversations add column reference_image_mode text not null default 'combined'")
+    }
     if (!conversationColumns.some((column) => column.name === 'max_retries')) {
       this.db.exec('alter table conversations add column max_retries integer not null default 0')
     }
@@ -618,6 +625,7 @@ export class AppDatabase {
       stream: Boolean(row.stream),
       partialImages: row.partial_images != null ? Number(row.partial_images) : 0,
       inputFidelity: row.input_fidelity === 'high' || row.input_fidelity === 'low' ? row.input_fidelity : null,
+      referenceImageMode: row.reference_image_mode === 'per-reference' ? 'per-reference' : 'combined',
       maxRetries: normalizeRetryCount(row.max_retries != null ? Number(row.max_retries) : DEFAULT_IMAGE_MAX_RETRIES),
       generationTimeoutSeconds: normalizeImageGenerationTimeoutSeconds(
         row.generation_timeout_seconds != null ? Number(row.generation_timeout_seconds) : DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS

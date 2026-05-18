@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_API_PROVIDER,
+  DEFAULT_GEMINI_BASE_URL,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_GPT_BASE_URL,
   DEFAULT_IMAGE_OUTPUT_FORMAT,
   IMAGE_BACKGROUND_LABELS,
   IMAGE_BACKGROUNDS,
@@ -15,9 +19,16 @@ import {
   buildImageEditEndpoint,
   buildImageEndpoint,
   buildImageRequestBody,
+  buildProviderImageEndpoint,
+  buildGeminiGenerateContentEndpoint,
   formatImageQuality,
   getDefaultImageSize,
   getImageSizeOptions,
+  getProviderDefaultModel,
+  getProviderModelOptions,
+  normalizeGeminiBaseURL,
+  normalizeImageSizeForModel,
+  normalizeProviderModel,
   ratioToSize,
   supportsImageInputFidelity
 } from './image-options'
@@ -40,6 +51,18 @@ describe('image options', () => {
   })
 
   it('exposes GPT and compatibility quality options', () => {
+    expect(DEFAULT_API_PROVIDER).toBe('gpt')
+    expect(DEFAULT_GPT_BASE_URL).toBe('https://api.openai.com')
+    expect(DEFAULT_GEMINI_BASE_URL).toBe('https://generativelanguage.googleapis.com/v1beta')
+    expect(DEFAULT_GEMINI_MODEL).toBe('gemini-3.1-flash-image-preview')
+    expect(getProviderModelOptions('gpt')).toEqual(['gpt-image-2'])
+    expect(getProviderModelOptions('gemini')).toEqual([
+      'gemini-3.1-flash-image-preview',
+      'gemini-3-pro-image-preview',
+      'gemini-2.5-flash-image'
+    ])
+    expect(getProviderDefaultModel('gemini')).toBe('gemini-3.1-flash-image-preview')
+    expect(normalizeProviderModel('gemini', 'unknown')).toBe('gemini-3.1-flash-image-preview')
     expect(IMAGE_QUALITIES).toEqual(['auto', 'low', 'medium', 'high'])
     expect(IMAGE_QUALITY_LABELS).toEqual({
       auto: '自动',
@@ -61,6 +84,21 @@ describe('image options', () => {
 
   it('normalizes baseURL into the generations endpoint', () => {
     expect(buildImageEndpoint('https://example.test///')).toBe('https://example.test/v1/images/generations')
+    expect(buildProviderImageEndpoint('gpt', 'https://example.test///', 'gpt-image-2')).toBe('https://example.test/v1/images/generations')
+    expect(buildProviderImageEndpoint('gemini', 'https://example.test///', 'gemini-3-pro-image-preview'))
+      .toBe('https://example.test/v1beta/models/gemini-3-pro-image-preview:generateContent')
+    expect(buildProviderImageEndpoint('gemini', 'https://example.test/v1beta///', 'gemini-3-pro-image-preview'))
+      .toBe('https://example.test/v1beta/models/gemini-3-pro-image-preview:generateContent')
+    expect(buildGeminiGenerateContentEndpoint('https://example.test/v1alpha', 'models/gemini-2.5-flash-image'))
+      .toBe('https://example.test/v1alpha/models/gemini-2.5-flash-image:generateContent')
+    expect(normalizeGeminiBaseURL('https://example.test/v1beta')).toEqual({ baseUrl: 'https://example.test', apiVersion: 'v1beta' })
+    expect(normalizeGeminiBaseURL('https://example.test')).toEqual({ baseUrl: 'https://example.test', apiVersion: 'v1beta' })
+  })
+
+  it('normalizes image sizes for the selected model family', () => {
+    expect(normalizeImageSizeForModel('gpt-image-2', '1:1', '4K')).toBe('1024x1024')
+    expect(normalizeImageSizeForModel('gemini-3.1-flash-image-preview', '1:1', '1024x1024')).toBe('4K')
+    expect(normalizeImageSizeForModel('gemini-3.1-flash-image-preview', '1:1', '2K')).toBe('2K')
   })
 
   it('normalizes baseURL into the edits endpoint', () => {

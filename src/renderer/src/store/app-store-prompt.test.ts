@@ -101,6 +101,7 @@ function createConversation(input: Partial<Conversation> = {}): Conversation {
     stream: false,
     partialImages: 0,
     inputFidelity: null,
+    referenceImageMode: 'combined',
     maxRetries: 0,
     generationTimeoutSeconds: 300,
     autoSaveHistory: true,

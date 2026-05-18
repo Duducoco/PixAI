@@ -58,6 +58,7 @@ describe('prompt service', () => {
 function createSettings() {
   return {
     getPublicSettings: () => ({
+      provider: 'gpt',
       baseURL: 'https://example.test',
       defaultModel: 'gpt-image-2',
       promptModel: 'gpt-5.4-mini',

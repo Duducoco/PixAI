@@ -1,4 +1,5 @@
 import type {
+  ApiProvider,
   GenerateImageInput,
   ImageBackground,
   ImageInputFidelity,
@@ -9,6 +10,23 @@ import type {
 } from './types'
 
 export const DEFAULT_MODEL = 'gpt-image-2'
+export const DEFAULT_API_PROVIDER: ApiProvider = 'gpt'
+export const DEFAULT_GPT_BASE_URL = 'https://api.openai.com'
+export const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
+export const DEFAULT_GEMINI_API_VERSION = 'v1beta'
+export const GPT_IMAGE_MODELS = ['gpt-image-2'] as const
+export const GEMINI_IMAGE_MODELS = [
+  'gemini-3.1-flash-image-preview',
+  'gemini-3-pro-image-preview',
+  'gemini-2.5-flash-image'
+] as const
+export const DEFAULT_GEMINI_MODEL = GEMINI_IMAGE_MODELS[0]
+export const IMAGE_MODEL_LABELS: Record<string, string> = {
+  'gpt-image-2': 'GPT Image 2',
+  'gemini-3.1-flash-image-preview': 'Gemini 3.1 Flash Image Preview',
+  'gemini-3-pro-image-preview': 'Gemini 3 Pro Image Preview',
+  'gemini-2.5-flash-image': 'Gemini 2.5 Flash Image'
+}
 export const DEFAULT_IMAGE_OUTPUT_FORMAT: ImageOutputFormat = 'png'
 export const DEFAULT_IMAGE_MAX_RETRIES = 0
 export const DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS = 300
@@ -125,6 +143,18 @@ export function isImageSizeCompatible(ratio: ImageRatio, size: string): boolean 
   return getImageSizeOptions(ratio).some((option) => option.value === size)
 }
 
+export function getDefaultSizeForModel(model: string, ratio: ImageRatio): string {
+  return isGeminiModel(model) ? getDefaultGeminiSize() : getDefaultImageSize(ratio)
+}
+
+export function normalizeImageSizeForModel(model: string, ratio: ImageRatio, size: string): string {
+  const trimmed = size.trim()
+  if (isGeminiModel(model)) {
+    return getGeminiSizeOptions().some((option) => option.value === trimmed) ? trimmed : getDefaultGeminiSize()
+  }
+  return isImageSizeCompatible(ratio, trimmed) ? trimmed : getDefaultImageSize(ratio)
+}
+
 const ratioSizeMap: Record<ImageRatio, string> = {
   '1:1': '1024x1024',
   '3:2': '1536x1024',
@@ -154,6 +184,32 @@ export function formatImageSize(size: string): string {
   return size.replace('x', '×')
 }
 
+export function getProviderBaseURL(provider: ApiProvider): string {
+  return provider === 'gemini' ? DEFAULT_GEMINI_BASE_URL : DEFAULT_GPT_BASE_URL
+}
+
+export function getProviderDefaultModel(provider: ApiProvider): string {
+  return provider === 'gemini' ? DEFAULT_GEMINI_MODEL : DEFAULT_MODEL
+}
+
+export function getProviderModelOptions(provider: ApiProvider): string[] {
+  return provider === 'gemini' ? [...GEMINI_IMAGE_MODELS] : [...GPT_IMAGE_MODELS]
+}
+
+export function getModelProvider(model: string): ApiProvider {
+  return isGeminiModel(model) ? 'gemini' : 'gpt'
+}
+
+export function normalizeApiProvider(value: unknown): ApiProvider {
+  return value === 'gemini' ? 'gemini' : 'gpt'
+}
+
+export function normalizeProviderModel(provider: ApiProvider, model: string): string {
+  const trimmed = model.trim()
+  const options = getProviderModelOptions(provider)
+  return options.includes(trimmed) ? trimmed : getProviderDefaultModel(provider)
+}
+
 function toOptionalNumber(value: number | null | undefined): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
@@ -166,6 +222,53 @@ export function buildImageEndpoint(baseURL: string): string {
 export function buildImageEditEndpoint(baseURL: string): string {
   const normalized = baseURL.trim().replace(/\/+$/, '')
   return `${normalized}/v1/images/edits`
+}
+
+export function buildProviderImageEndpoint(provider: ApiProvider, baseURL: string, model: string): string {
+  const normalized = baseURL.trim().replace(/\/+$/, '')
+  return provider === 'gemini'
+    ? buildGeminiGenerateContentEndpoint(normalized, model.trim() || getProviderDefaultModel(provider))
+    : buildImageEndpoint(normalized)
+}
+
+export function normalizeGeminiBaseURL(baseURL: string): { baseUrl: string; apiVersion: string } {
+  const normalized = baseURL.trim().replace(/\/+$/, '') || DEFAULT_GEMINI_BASE_URL
+  const versionMatch = /^(.*)\/(v1|v1alpha|v1beta)$/i.exec(normalized)
+  if (!versionMatch) return { baseUrl: normalized, apiVersion: DEFAULT_GEMINI_API_VERSION }
+  return {
+    baseUrl: versionMatch[1],
+    apiVersion: versionMatch[2]
+  }
+}
+
+export function buildGeminiGenerateContentEndpoint(baseURL: string, model: string): string {
+  const { baseUrl, apiVersion } = normalizeGeminiBaseURL(baseURL)
+  const normalizedModel = model.trim() || DEFAULT_GEMINI_MODEL
+  const modelPath = normalizedModel.startsWith('models/') || normalizedModel.startsWith('tunedModels/')
+    ? normalizedModel
+    : `models/${normalizedModel}`
+  return `${baseUrl}/${apiVersion}/${modelPath}:generateContent`
+}
+
+export function isGeminiModel(model: string): boolean {
+  const lower = model.trim().toLowerCase()
+  return lower.startsWith('gemini-') || lower.startsWith('gemini/')
+}
+
+export type GeminiResolution = '1K' | '2K' | '4K'
+export const GEMINI_RESOLUTIONS: GeminiResolution[] = ['1K', '2K', '4K']
+export const GEMINI_RESOLUTION_LABELS: Record<GeminiResolution, string> = {
+  '1K': '标准 1K',
+  '2K': '高清 2K',
+  '4K': '超清 4K'
+}
+
+export function getGeminiSizeOptions(): ImageSizeOption[] {
+  return GEMINI_RESOLUTIONS.map((r) => ({ value: r, label: GEMINI_RESOLUTION_LABELS[r] }))
+}
+
+export function getDefaultGeminiSize(): string {
+  return '4K'
 }
 
 export function supportsImageInputFidelity(model: string): boolean {

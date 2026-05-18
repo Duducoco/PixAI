@@ -1037,4 +1037,192 @@ describe('image service progress', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  it('can apply one prompt to each reference image separately and groups output indexes by reference', async () => {
+    const originalFetch = globalThis.fetch
+    const referencesDir = mkdtempSync(join(tmpdir(), 'pixai-per-reference-test-'))
+    const firstReferencePath = join(referencesDir, 'first.png')
+    const secondReferencePath = join(referencesDir, 'second.png')
+    writeFileSync(firstReferencePath, Buffer.from('first-reference'))
+    writeFileSync(secondReferencePath, Buffer.from('second-reference'))
+    const references = [
+      {
+        id: 'ref-1',
+        name: 'first.png',
+        mimeType: 'image/png',
+        filePath: firstReferencePath,
+        fileSizeBytes: Buffer.byteLength('first-reference'),
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'ref-2',
+        name: 'second.png',
+        mimeType: 'image/png',
+        filePath: secondReferencePath,
+        fileSizeBytes: Buffer.byteLength('second-reference'),
+        createdAt: new Date().toISOString()
+      }
+    ]
+    const historyItems: Array<Record<string, unknown>> = []
+    const insertRunReferences = vi.fn()
+    const run = {
+      id: 'run-1',
+      conversationId: 'c1',
+      prompt: 'black and white',
+      model: 'gpt-image-2',
+      ratio: '1:1',
+      size: '1024x1024',
+      quality: 'auto',
+      n: 4,
+      maxRetries: 0,
+      retryAttempts: {},
+      retryFailures: {},
+      status: 'running',
+      durationMs: null,
+      errorMessage: null,
+      errorDetails: null,
+      generationMode: 'image-to-image',
+      referenceImages: references,
+      createdAt: new Date().toISOString(),
+      items: []
+    }
+
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({
+        data: [{ b64_json: Buffer.from('image').toString('base64') }]
+      }), { status: 200 }))
+    ) as unknown as typeof fetch
+
+    try {
+      const imageService = new ImageService(
+        {
+          getConversation: () => ({ autoSaveHistory: true }),
+          listConversationReferences: () => references,
+          insertRun: vi.fn((input) => ({ ...run, n: input.n, referenceImages: input.referenceImages })),
+          insertRunReferences,
+          insertHistory: vi.fn((input) => {
+            const item = { ...input, favorite: false }
+            historyItems.push(item)
+            return item
+          }),
+          updateRun: vi.fn((_id, input) => ({ ...run, ...input, items: historyItems })),
+          updateRunRetryFailure: vi.fn(),
+          imagesDir: mkdtempSync(join(tmpdir(), 'pixai-per-reference-output-test-'))
+        } as never,
+        {
+          getPublicSettings: () => ({ baseURL: 'https://example.test', defaultModel: 'gpt-image-2' }),
+          getApiKey: () => 'sk-test'
+        } as never
+      )
+
+      const result = await imageService.generate({
+        conversationId: 'c1',
+        prompt: 'black and white',
+        model: 'gpt-image-2',
+        ratio: '1:1',
+        size: '1024x1024',
+        quality: 'auto',
+        n: 2,
+        outputFormat: 'png',
+        referenceImageIds: references.map((reference) => reference.id),
+        referenceImageMode: 'per-reference'
+      })
+
+      expect(globalThis.fetch).toHaveBeenCalledTimes(4)
+      const bodies = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[1].body as FormData)
+      expect(bodies.map((body) => body.getAll('image[]').map((file) => (file as File).name))).toEqual([
+        ['first.png'],
+        ['first.png'],
+        ['second.png'],
+        ['second.png']
+      ])
+      expect(insertRunReferences).toHaveBeenCalledWith(run.id, references)
+      expect(result.run.n).toBe(4)
+      expect(result.items.map((item) => item.requestIndex)).toEqual([0, 1, 2, 3])
+      expect(result.items.map((item) => item.referenceImages.map((reference) => reference.id))).toEqual([
+        ['ref-1'],
+        ['ref-1'],
+        ['ref-2'],
+        ['ref-2']
+      ])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('uses the Google GenAI SDK for Gemini and records SDK diagnostics', async () => {
+    const originalFetch = globalThis.fetch
+    const run = {
+      id: 'run-1',
+      conversationId: 'c1',
+      prompt: '小狗',
+      model: 'gemini-3.1-flash-image-preview',
+      ratio: '1:1',
+      size: '4K',
+      quality: 'high',
+      n: 1,
+      status: 'running',
+      durationMs: null,
+      errorMessage: null,
+      errorDetails: null,
+      generationMode: 'text-to-image',
+      referenceImages: [],
+      createdAt: new Date().toISOString(),
+      items: []
+    }
+    const insertHistory = vi.fn((input) => ({ ...input, favorite: false }))
+
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(new Response('<!doctype html><title>Wrong endpoint</title>', {
+        status: 200,
+        statusText: 'OK',
+        headers: { 'content-type': 'text/html' }
+      }))
+    ) as unknown as typeof fetch
+
+    try {
+      const imageService = new ImageService(
+        {
+          getConversation: () => ({ autoSaveHistory: true }),
+          listConversationReferences: () => [],
+          insertRun: () => run,
+          insertHistory,
+          updateRun: vi.fn((_id, input) => ({ ...run, ...input, items: [] })),
+          updateRunRetryFailure: vi.fn(),
+          imagesDir: mkdtempSync(join(tmpdir(), 'pixai-gemini-html-test-'))
+        } as never,
+        {
+          getPublicSettings: () => ({
+            provider: 'gemini',
+            baseURL: 'https://generativelanguage.googleapis.com/v1beta',
+            defaultModel: 'gemini-3.1-flash-image-preview'
+          }),
+          getApiKey: () => 'gemini-key'
+        } as never
+      )
+
+      const result = await imageService.generate({
+        conversationId: 'c1',
+        prompt: '小狗',
+        model: 'gemini-3.1-flash-image-preview',
+        ratio: '1:1',
+        size: '4K',
+        quality: 'high',
+        n: 1
+      })
+
+      expect(result.errorMessage).toContain('Unexpected token')
+      expect(insertHistory.mock.calls[0][0].errorMessage).toContain('Unexpected token')
+      expect(insertHistory.mock.calls[0][0].errorDetails).toContain('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent')
+      expect(insertHistory.mock.calls[0][0].errorDetails).toContain('Unexpected token')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent',
+        expect.objectContaining({
+          method: 'POST'
+        })
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })
