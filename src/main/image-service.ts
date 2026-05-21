@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
+import { GoogleGenAI } from '@google/genai'
 import {
   buildImageEditEndpoint,
   buildImageEndpoint,
@@ -9,7 +10,10 @@ import {
   DEFAULT_IMAGE_MAX_RETRIES,
   DEFAULT_IMAGE_OUTPUT_FORMAT,
   MAX_IMAGE_MAX_RETRIES,
+  normalizeGeminiBaseURL,
   getDefaultImageSize,
+  isGeminiModel,
+  normalizeImageSizeForModel,
   normalizeImageGenerationTimeoutSeconds,
   supportsImageInputFidelity
 } from '@shared/image-options'
@@ -25,6 +29,11 @@ import type {
 } from '@shared/types'
 import type { AppDatabase } from './database'
 import { createErrorDetails } from './error-details'
+import {
+  buildGeminiEndpoint,
+  buildGeminiGenerateContentParams,
+  parseGeminiResponse
+} from './gemini-request'
 import type { ImageResponseData } from './image-response'
 import type { SettingsStore } from './settings'
 
@@ -39,6 +48,7 @@ type ImageApiResponse = {
 }
 
 const STREAM_IDLE_TIMEOUT_MS = 60_000
+const MAX_CONCURRENT_IMAGE_REQUESTS = 10
 
 type ImageRequestDiagnostics = {
   streamFallback?: {
@@ -65,6 +75,11 @@ type RequestAbortScope = {
   cleanup: () => void
 }
 
+type ImageGenerationRequest = {
+  requestIndex: number
+  referenceImages: ReferenceImage[]
+}
+
 export class ImageService {
   private readonly activeRequests = new Map<string, Array<{ controller: AbortController }>>()
 
@@ -81,10 +96,12 @@ export class ImageService {
     const globalVisible = conversation?.autoSaveHistory !== false
     const prompt = input.prompt.trim()
     const model = input.model.trim() || settings.defaultModel
-    const size = input.size.trim() || getDefaultImageSize(input.ratio)
+    const size = normalizeImageSizeForModel(model, input.ratio, input.size)
     const createdAt = new Date().toISOString()
     const referenceImages = this.getGenerationReferences(input)
     const generationMode: GenerationMode = referenceImages.length > 0 ? 'image-to-image' : 'text-to-image'
+    const generationRequests = createImageGenerationRequests(input, referenceImages)
+    const targetCount = generationRequests.length
     const maxRetries = normalizeRetryCount(input.maxRetries)
     const generationTimeoutSeconds = normalizeImageGenerationTimeoutSeconds(input.generationTimeoutSeconds)
     const run = this.database.insertRun({
@@ -96,7 +113,7 @@ export class ImageService {
       size,
       quality: input.quality,
       durationMs: null,
-      n: input.n,
+      n: targetCount,
       status: 'running',
       errorMessage: null,
       errorDetails: null,
@@ -119,8 +136,11 @@ export class ImageService {
       }, createdAt, elapsedMs(startedAtMs))
     }
 
-    const endpoint = generationMode === 'image-to-image' ? buildImageEditEndpoint(settings.baseURL) : buildImageEndpoint(settings.baseURL)
-    const targetCount = Math.min(10, Math.max(1, input.n || 1))
+    const endpoint = isGeminiModel(model)
+      ? buildGeminiEndpoint(settings.baseURL, model)
+      : generationMode === 'image-to-image'
+        ? buildImageEditEndpoint(settings.baseURL)
+        : buildImageEndpoint(settings.baseURL)
     const requestControllers = Array.from({ length: targetCount }, () => ({ controller: new AbortController() }))
     this.activeRequests.set(run.id, requestControllers)
     try {
@@ -128,9 +148,13 @@ export class ImageService {
       let succeededCount = 0
       let canceledCount = 0
       await runWithConcurrency(
-        requestControllers,
-        targetCount,
-        async ({ controller }, requestIndex) => {
+        generationRequests,
+        Math.min(MAX_CONCURRENT_IMAGE_REQUESTS, targetCount),
+        async (generationRequest) => {
+          const { requestIndex } = generationRequest
+          const requestReferences = generationRequest.referenceImages
+          const controller = requestControllers[requestIndex]?.controller
+          if (!controller) return null
           if (controller.signal.aborted) {
             canceledCount += 1
             return null
@@ -141,9 +165,10 @@ export class ImageService {
               input,
               run,
               model,
+              size,
               endpoint,
               apiKey,
-              referenceImages,
+              referenceImages: requestReferences,
               requestSignal: controller.signal,
               requestIndex,
               maxRetries,
@@ -177,7 +202,7 @@ export class ImageService {
               errorDetails: null,
               retryAttempt: generated.retryAttempt,
               generationMode,
-              referenceImages,
+              referenceImages: requestReferences,
               globalVisible,
               createdAt: new Date().toISOString()
             })
@@ -196,7 +221,7 @@ export class ImageService {
                 requestIndex,
                 retryAttempt: maxRetries,
                 maxRetries
-              }, new Date().toISOString(), durationMs)
+              }, new Date().toISOString(), durationMs, undefined, requestReferences)
               items.push(item)
               return item
             }
@@ -206,16 +231,18 @@ export class ImageService {
               requestIndex,
               retryAttempt: maxRetries,
               maxRetries
-            }, new Date().toISOString(), durationMs)
+            }, new Date().toISOString(), durationMs, undefined, requestReferences)
             items.push(item)
             return item
           }
         }
       )
 
-      const failedCount = items.length - succeededCount
+      const orderedItems = sortImageHistoryItems(items)
+      const failedCount = orderedItems.length - succeededCount
+      const firstFailureMessage = orderedItems.find((item) => item.status === 'failed')?.errorMessage || null
       const errorMessage = failedCount > 0 && succeededCount === 0
-        ? (canceledCount === failedCount ? 'Generation canceled.' : 'Image generation failed.')
+        ? (canceledCount === failedCount ? 'Generation canceled.' : firstFailureMessage || 'Image generation failed.')
         : null
       const errorDetails = errorMessage ? createErrorDetails({ ...input, model, generationTimeoutSeconds }, canceledCount === failedCount ? 'canceled' : 'batch-failed', {
         succeededCount,
@@ -229,8 +256,8 @@ export class ImageService {
         durationMs: elapsedMs(startedAtMs)
       })
       return {
-        run: { ...completedRun, items },
-        items,
+        run: { ...completedRun, items: orderedItems },
+        items: orderedItems,
         errorMessage: errorMessage || undefined,
         errorDetails: errorDetails || undefined,
         canceled: canceledCount > 0 && succeededCount === 0
@@ -313,6 +340,9 @@ export class ImageService {
     scope: RequestAbortScope,
     diagnostics: ImageRequestDiagnostics = {}
   ): Promise<ImageRequestResult> {
+    if (isGeminiModel(input.model)) {
+      return this.requestGeminiImage(endpoint, apiKey, input, referenceImages, scope, diagnostics)
+    }
     if (referenceImages.length > 0) {
       return this.requestImageEditBatch(endpoint, apiKey, input, referenceImages, scope, diagnostics)
     }
@@ -368,6 +398,7 @@ export class ImageService {
     input,
     run,
     model,
+    size,
     endpoint,
     apiKey,
     referenceImages,
@@ -380,6 +411,7 @@ export class ImageService {
     input: GenerateImageInput
     run: GenerationRun
     model: string
+    size: string
     endpoint: string
     apiKey: string
     referenceImages: ReferenceImage[]
@@ -406,7 +438,7 @@ export class ImageService {
         const requestResult = await this.requestImageBatch(
           endpoint,
           apiKey,
-          { ...input, model, n: 1, maxRetries },
+          { ...input, model, size, n: 1, maxRetries },
           referenceImages,
           attemptScope
         )
@@ -436,7 +468,7 @@ export class ImageService {
           retryAttempt,
           maxRetries,
           ...requestResult.diagnostics
-        }, retryFailure.createdAt, durationMs, retryFailure.errorDetails)
+        }, retryFailure.createdAt, durationMs, retryFailure.errorDetails, referenceImages)
         return { image: null, item, retryAttempt }
       } catch (error) {
         if (requestSignal.aborted) {
@@ -465,7 +497,7 @@ export class ImageService {
             retryAttempt,
             maxRetries,
             timeoutMs: generationTimeoutSeconds * 1000
-          }, retryFailure.createdAt, durationMs, retryFailure.errorDetails)
+          }, retryFailure.createdAt, durationMs, retryFailure.errorDetails, referenceImages)
           return { image: null, item, retryAttempt }
         }
 
@@ -487,7 +519,7 @@ export class ImageService {
             requestIndex,
             retryAttempt,
             maxRetries
-          }, retryFailure.createdAt, durationMs, retryFailure.errorDetails)
+          }, retryFailure.createdAt, durationMs, retryFailure.errorDetails, referenceImages)
           return { image: null, item, retryAttempt }
         }
 
@@ -509,7 +541,7 @@ export class ImageService {
           requestIndex,
           retryAttempt,
           maxRetries
-        }, retryFailure.createdAt, durationMs, retryFailure.errorDetails)
+        }, retryFailure.createdAt, durationMs, retryFailure.errorDetails, referenceImages)
         return { image: null, item, retryAttempt }
       } finally {
         attemptScope.cleanup()
@@ -517,6 +549,45 @@ export class ImageService {
     }
 
     throw new Error('Image generation retry loop exited unexpectedly.')
+  }
+
+  private async requestGeminiImage(
+    endpoint: string,
+    apiKey: string,
+    input: GenerateImageInput,
+    referenceImages: ReferenceImage[],
+    scope: RequestAbortScope,
+    diagnostics: ImageRequestDiagnostics = {}
+  ): Promise<ImageRequestResult> {
+    const params = buildGeminiGenerateContentParams(input.prompt.trim(), referenceImages, input.ratio, input.size)
+    const { baseUrl, apiVersion } = normalizeGeminiBaseURL(buildGeminiBaseURLFromEndpoint(endpoint))
+    const client = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        baseUrl,
+        apiVersion,
+        timeout: 0
+      }
+    })
+
+    try {
+      const response = await client.models.generateContent({
+        model: input.model.trim(),
+        contents: params.contents,
+        config: {
+          ...params.config,
+          abortSignal: scope.signal
+        }
+      })
+      const images = parseGeminiResponse(response)
+      return { images, diagnostics }
+    } catch (error) {
+      throw new ImageHttpError(getErrorMessage(error, 'Gemini image generation failed.'), {
+        endpoint,
+        ...getGeminiErrorDetails(error),
+        ...diagnostics
+      })
+    }
   }
 
   private async requestImageEditBatch(
@@ -623,7 +694,8 @@ export class ImageService {
     details: Record<string, unknown>,
     createdAt: string,
     durationMs = 0,
-    existingErrorDetails?: string
+    existingErrorDetails?: string,
+    referenceImages: ReferenceImage[] = run.referenceImages
   ): ImageHistoryItem {
     const errorDetails = existingErrorDetails || createErrorDetails({ ...input, model }, stage, details)
     return this.database.insertHistory({
@@ -644,7 +716,7 @@ export class ImageService {
       errorDetails,
       retryAttempt: typeof details.retryAttempt === 'number' ? details.retryAttempt : 0,
       generationMode: run.generationMode,
-      referenceImages: run.referenceImages,
+      referenceImages,
       globalVisible: this.database.getConversation(input.conversationId)?.autoSaveHistory !== false,
       createdAt
     })
@@ -761,6 +833,35 @@ async function runWithConcurrency<T>(
       }
     })
   )
+}
+
+function createImageGenerationRequests(
+  input: GenerateImageInput,
+  referenceImages: ReferenceImage[]
+): ImageGenerationRequest[] {
+  const perInputCount = Math.min(10, Math.max(1, input.n || 1))
+  if (referenceImages.length === 0 || input.referenceImageMode !== 'per-reference') {
+    return Array.from({ length: perInputCount }, (_value, requestIndex) => ({
+      requestIndex,
+      referenceImages
+    }))
+  }
+
+  return referenceImages.flatMap((referenceImage, referenceIndex) => (
+    Array.from({ length: perInputCount }, (_value, outputIndex) => ({
+      requestIndex: referenceIndex * perInputCount + outputIndex,
+      referenceImages: [referenceImage]
+    }))
+  ))
+}
+
+function sortImageHistoryItems(items: ImageHistoryItem[]): ImageHistoryItem[] {
+  return [...items].sort((left, right) => {
+    const leftIndex = typeof left.requestIndex === 'number' ? left.requestIndex : Number.MAX_SAFE_INTEGER
+    const rightIndex = typeof right.requestIndex === 'number' ? right.requestIndex : Number.MAX_SAFE_INTEGER
+    if (leftIndex !== rightIndex) return leftIndex - rightIndex
+    return left.createdAt.localeCompare(right.createdAt)
+  })
 }
 
 function createRequestAbortScope(userSignal: AbortSignal, timeoutMs: number): RequestAbortScope {
@@ -896,6 +997,30 @@ function disableStreaming(input: GenerateImageInput): GenerateImageInput {
 
 function buildGenerationTimeoutMessage(timeoutSeconds: number): string {
   return `Image generation timed out after ${timeoutSeconds} seconds.`
+}
+
+function buildGeminiBaseURLFromEndpoint(endpoint: string): string {
+  return endpoint.replace(/\/(?:v1|v1alpha|v1beta)\/(?:models|tunedModels)\/.+:generateContent$/i, (match) => {
+    const versionMatch = /^\/(v1|v1alpha|v1beta)\//i.exec(match)
+    return versionMatch ? `/${versionMatch[1]}` : ''
+  })
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'string' && error.trim()) return error
+  return fallback
+}
+
+function getGeminiErrorDetails(error: unknown): Record<string, unknown> {
+  if (!error || typeof error !== 'object') return { exception: serializeError(error) }
+  const record = error as Record<string, unknown>
+  return {
+    exception: serializeError(error),
+    ...(typeof record.status === 'number' ? { httpStatus: record.status } : {}),
+    ...(typeof record.code === 'number' ? { code: record.code } : {}),
+    ...(typeof record.name === 'string' ? { sdkErrorName: record.name } : {})
+  }
 }
 
 function normalizeRetryCount(value: unknown): number {

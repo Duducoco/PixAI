@@ -16,6 +16,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@google/genai": "^2.4.0",
     "better-sqlite3": "^11.10.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",

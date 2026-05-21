@@ -14,7 +14,7 @@ import {
   type PromptTemplateInput,
   updatePromptLibraryItem
 } from '@renderer/prompt-library'
-import { IMAGE_QUALITIES, IMAGE_RATIOS, formatImageQuality } from '@shared/image-options'
+import { IMAGE_MODEL_LABELS, IMAGE_QUALITIES, IMAGE_RATIOS, formatImageQuality } from '@shared/image-options'
 import { useAppStore } from '@renderer/store/app-store'
 import { PromptTemplateEditorModal } from './PromptTemplateEditorModal'
 
@@ -29,15 +29,24 @@ const qualityOptions: Array<GallerySelectOption<'all' | PromptTemplate['quality'
 ]
 
 export function PromptLibraryPage(): JSX.Element {
-  const { notify, applyPromptTemplate } = useAppStore()
+  const { notify, applyPromptTemplate, conversations, activeConversationId } = useAppStore()
+  const activeConversation = conversations.find((item) => item.id === activeConversationId) || null
   const [items, setItems] = useState<PromptLibraryItem[]>(() => getPromptLibraryItems())
   const [searchQuery, setSearchQuery] = useState('')
   const [category, setCategory] = useState('all')
+  const [model, setModel] = useState<'all' | PromptTemplate['model']>('all')
   const [ratio, setRatio] = useState<'all' | PromptTemplate['ratio']>('all')
   const [quality, setQuality] = useState<'all' | PromptTemplate['quality']>('all')
   const [editingTemplate, setEditingTemplate] = useState<PromptLibraryEditorState | null>(null)
 
   const categories = useMemo(() => getPromptTemplateCategories(items), [items])
+  const modelOptions = useMemo(
+    () =>
+      Array.from(new Set(items.map((item) => item.model).filter(Boolean)))
+        .sort((left, right) => left.localeCompare(right))
+        .map((value) => ({ value, label: IMAGE_MODEL_LABELS[value] || value })),
+    [items]
+  )
   const tagOptions = useMemo(
     () =>
       Array.from(new Set(items.flatMap((item) => item.tags.map((tag) => tag.trim()).filter(Boolean))))
@@ -48,12 +57,16 @@ export function PromptLibraryPage(): JSX.Element {
     () => categories.map((value) => ({ value, label: value })),
     [categories]
   )
-  const templates = useMemo(() => filterPromptTemplates(items, { query: searchQuery, category, ratio, quality }), [category, items, quality, ratio, searchQuery])
+  const templates = useMemo(
+    () => filterPromptTemplates(items, { query: searchQuery, category, model, ratio, quality }),
+    [category, items, model, quality, ratio, searchQuery]
+  )
 
   const refreshItems = () => setItems(getPromptLibraryItems())
 
   const resetFilters = () => {
     setCategory('all')
+    setModel('all')
     setRatio('all')
     setQuality('all')
     setSearchQuery('')
@@ -76,7 +89,12 @@ export function PromptLibraryPage(): JSX.Element {
     setEditingTemplate({
       id: null,
       title: '新增提示词',
-      initialValue: createEmptyPromptTemplateInput()
+      initialValue: createEmptyPromptTemplateInput({
+        model: activeConversation?.model,
+        ratio: activeConversation?.ratio,
+        resolution: activeConversation?.size,
+        quality: activeConversation?.quality
+      })
     })
   }
 
@@ -117,10 +135,17 @@ export function PromptLibraryPage(): JSX.Element {
           <input
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="搜索标题、标签、说明、提示词或分辨率"
+            placeholder="搜索标题、标签、说明、模型、提示词或分辨率"
           />
         </div>
         <GallerySelect value={category} options={[{ value: 'all', label: '分类' }, ...categoryOptions]} ariaLabel="筛选分类" onChange={setCategory} />
+        <GallerySelect
+          value={model}
+          options={[{ value: 'all', label: '模型' }, ...modelOptions]}
+          ariaLabel="筛选模型"
+          className="prompt-library-model-select"
+          onChange={setModel}
+        />
         <GallerySelect value={ratio} options={ratioOptions} ariaLabel="筛选比例" onChange={setRatio} />
         <GallerySelect value={quality} options={qualityOptions} ariaLabel="筛选质量" onChange={setQuality} />
         <button onClick={resetFilters}>
@@ -156,6 +181,7 @@ export function PromptLibraryPage(): JSX.Element {
               </div>
               <div className="prompt-template-card-badges">
                 <span className="pill good">{template.category}</span>
+                <span className="pill model-pill">{IMAGE_MODEL_LABELS[template.model] || template.model}</span>
                 <span className="pill blue">{template.resolution}</span>
                 <span className="pill">{template.quality}</span>
               </div>
@@ -252,6 +278,7 @@ function normalizeLibraryInput(value: PromptTemplateInput): PromptTemplateInput 
     category: value.category.trim(),
     description: value.description.trim(),
     prompt: value.prompt.trim(),
+    model: value.model.trim(),
     resolution: value.resolution.trim(),
     tags: value.tags.map((tag) => tag.trim()).filter(Boolean)
   }

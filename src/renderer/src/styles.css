@@ -394,6 +394,7 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
   min-height: 22px;
   padding: 3px 8px;
   border: 0;
@@ -405,16 +406,24 @@ button:disabled {
   box-shadow: none;
 }
 
+.pill {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pill.good { background: var(--aqua); color: #25815f; }
 .pill.warn { background: #fff3dd; color: #95661c; }
 .pill.fail { background: #ffe9ea; color: #b7424c; }
 .pill.blue { background: #e9f0ff; color: #356ec8; }
+.pill.model-pill { max-width: 100%; background: #fff0e6; color: #9a5a21; }
 
 .dark .pill { background: #22302b; color: #aab8b2; }
 .dark .pill.good { background: #1d3b32; color: #8ce0bd; }
 .dark .pill.warn { background: #3d3320; color: #f3c86c; }
 .dark .pill.fail { background: #3b2227; color: #ffadb4; }
 .dark .pill.blue { background: #1e2d49; color: #a8c4ff; }
+.dark .pill.model-pill { background: #3c2d21; color: #ffc27c; }
 
 .tiny {
   min-height: 23px;
@@ -1400,6 +1409,67 @@ textarea {
   margin-left: 0;
 }
 
+.service-profile-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.service-profile-actions button {
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.service-profile-editor {
+  margin-top: 2px;
+}
+
+.service-profile-editor > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7faf8;
+  color: var(--ink);
+  cursor: pointer;
+  list-style: none;
+}
+
+.service-profile-editor > summary::-webkit-details-marker {
+  display: none;
+}
+
+.service-profile-editor-body {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.service-profile-editor .danger.full {
+  justify-content: center;
+  border-color: rgba(190, 65, 76, 0.24);
+  background: rgba(255, 235, 237, 0.92);
+}
+
+.dark .service-profile-editor > summary {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #17211d;
+  color: #edf6f1;
+}
+
+.dark .service-profile-editor .danger.full {
+  border-color: rgba(244, 114, 126, 0.2);
+  background: rgba(116, 45, 53, 0.42);
+}
+
 .status-error {
   margin-bottom: 10px;
   padding: 9px;
@@ -1575,6 +1645,12 @@ textarea {
   flex-basis: 112px;
   width: 112px;
   min-width: 112px;
+}
+
+.gallery-tools .prompt-library-model-select {
+  flex-basis: 180px;
+  width: 180px;
+  min-width: 160px;
 }
 
 .gallery-select.model-select {

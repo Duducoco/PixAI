@@ -1,11 +1,16 @@
 import type { JSX } from 'react'
 import { BookOpen, Image as ImageIcon, PanelRightClose, PanelRightOpen, PencilLine, Plus } from 'lucide-react'
+import { buildProviderImageEndpoint, DEFAULT_API_PROVIDER, DEFAULT_GPT_BASE_URL, DEFAULT_MODEL } from '@shared/image-options'
 import { useAppStore } from '@renderer/store/app-store'
 import logoUrl from '@renderer/assets/icon.png'
 
 export function Topbar(): JSX.Element {
   const { settings, settingsVisible, view, setView, toggleSettings, createConversation } = useAppStore()
-  const endpoint = `${settings?.baseURL || 'https://api.openai.com'}/v1/images/generations`
+  const endpoint = buildProviderImageEndpoint(
+    settings?.provider || DEFAULT_API_PROVIDER,
+    settings?.baseURL || DEFAULT_GPT_BASE_URL,
+    settings?.defaultModel || DEFAULT_MODEL
+  )
 
   return (
     <header className="topbar">

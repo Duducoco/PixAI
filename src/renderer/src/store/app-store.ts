@@ -4,8 +4,15 @@ import {
   DEFAULT_IMAGE_OUTPUT_FORMAT,
   DEFAULT_MODEL,
   MAX_IMAGE_MAX_RETRIES,
+  getDefaultGeminiSize,
   getDefaultImageSize,
-  normalizeImageGenerationTimeoutSeconds
+  getDefaultSizeForModel,
+  getModelProvider,
+  getProviderModelOptions,
+  isGeminiModel,
+  normalizeImageSizeForModel,
+  normalizeImageGenerationTimeoutSeconds,
+  normalizeProviderModel
 } from '@shared/image-options'
 import type {
   Conversation,
@@ -77,6 +84,9 @@ type AppState = {
   deleteConversation: (id: string) => Promise<void>
   updateActiveConversation: (input: ConversationUpdate) => Promise<void>
   updateSettings: (input: ProviderSettingsUpdate) => Promise<void>
+  createSettingsProfile: (input?: ProviderSettingsUpdate) => Promise<void>
+  selectSettingsProfile: (id: string) => Promise<void>
+  deleteSettingsProfile: (id: string) => Promise<void>
   importReferenceFiles: (files: File[]) => Promise<void>
   addHistoryAsReference: (historyId: string) => Promise<void>
   removeReferenceImage: (referenceImageId: string) => Promise<void>
@@ -116,6 +126,19 @@ function collectRunningRunIds(runsByConversation: Record<string, GenerationRun[]
     .flatMap((runs) => runs.filter((run) => run.status === 'running').map((run) => run.id))
 }
 
+function resolveConversationModelForSettings(
+  conversationModel: string | null | undefined,
+  settings: ProviderSettings | null
+): string {
+  const trimmedConversationModel = conversationModel?.trim() || ''
+  if (!settings) return trimmedConversationModel || DEFAULT_MODEL
+
+  const provider = settings.provider
+  const providerModels = getProviderModelOptions(provider)
+  if (providerModels.includes(trimmedConversationModel)) return trimmedConversationModel
+  return normalizeProviderModel(provider, settings.defaultModel)
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   view: 'workspace',
   settingsVisible: true,
@@ -141,7 +164,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ loading: true })
     const settings = await window.pixai.settings.get()
     let conversations = await window.pixai.conversation.list()
-    if (conversations.length === 0) conversations = [await window.pixai.conversation.create()]
+    if (conversations.length === 0) {
+      conversations = [await window.pixai.conversation.create({
+        model: settings.defaultModel,
+        size: isGeminiModel(settings.defaultModel) ? getDefaultGeminiSize() : undefined
+      })]
+    }
     const activeConversationId = get().activeConversationId || conversations[0]?.id || null
     const runs = activeConversationId ? await window.pixai.conversation.runs(activeConversationId) : []
     const history = await window.pixai.history.list({ sort: get().sort })
@@ -175,11 +203,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   createConversation: async (template = {}, options = {}) => {
     const current = get().conversations.find((item) => item.id === get().activeConversationId) || get().conversations[0] || null
+    const settings = get().settings
+    const ratio = template.ratio ?? current?.ratio ?? '1:1'
+    const model = template.model ?? resolveConversationModelForSettings(current?.model, settings)
+    const rawSize = template.size ?? current?.size ?? getDefaultSizeForModel(model, ratio)
     const conversation = await window.pixai.conversation.create({
-      ratio: template.ratio ?? current?.ratio,
-      size: template.size ?? current?.size,
+      ratio,
+      size: normalizeImageSizeForModel(model, ratio, rawSize),
       quality: template.quality ?? current?.quality,
-      model: template.model ?? current?.model,
+      model,
       n: template.n ?? current?.n,
       outputFormat: template.outputFormat ?? current?.outputFormat,
       outputCompression: template.outputCompression ?? current?.outputCompression,
@@ -188,6 +220,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       stream: template.stream ?? current?.stream,
       partialImages: template.partialImages ?? current?.partialImages,
       inputFidelity: template.inputFidelity ?? current?.inputFidelity,
+      referenceImageMode: template.referenceImageMode ?? current?.referenceImageMode,
       maxRetries: template.maxRetries ?? current?.maxRetries,
       generationTimeoutSeconds: template.generationTimeoutSeconds ?? current?.generationTimeoutSeconds,
       autoSaveHistory: template.autoSaveHistory ?? current?.autoSaveHistory,
@@ -222,6 +255,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         stream: deletedConversation?.stream,
         partialImages: deletedConversation?.partialImages,
         inputFidelity: deletedConversation?.inputFidelity,
+        referenceImageMode: deletedConversation?.referenceImageMode,
         maxRetries: deletedConversation?.maxRetries,
         generationTimeoutSeconds: deletedConversation?.generationTimeoutSeconds,
         autoSaveHistory: deletedConversation?.autoSaveHistory,
@@ -277,7 +311,36 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateSettings: async (input) => {
     const settings = await window.pixai.settings.update(input)
     set({ settings })
-    get().notify('设置已保存')
+    get().notify('服务配置已保存')
+  },
+  createSettingsProfile: async (input = {}) => {
+    const settings = await window.pixai.settings.createProfile(input)
+    set({ settings })
+    get().notify('已新增服务配置')
+  },
+  selectSettingsProfile: async (id) => {
+    const settings = await window.pixai.settings.selectProfile(id)
+    set({ settings })
+    const conversation = get().conversations.find((item) => item.id === get().activeConversationId)
+    if (conversation && conversation.model !== settings.defaultModel) {
+      await get().updateActiveConversation({
+        model: settings.defaultModel,
+        size: isGeminiModel(settings.defaultModel) ? getDefaultGeminiSize() : getDefaultImageSize(conversation.ratio)
+      })
+    }
+    get().notify(`已切换到「${settings.name}」`)
+  },
+  deleteSettingsProfile: async (id) => {
+    const settings = await window.pixai.settings.deleteProfile(id)
+    set({ settings })
+    const conversation = get().conversations.find((item) => item.id === get().activeConversationId)
+    if (conversation && getModelProvider(conversation.model) !== settings.provider) {
+      await get().updateActiveConversation({
+        model: settings.defaultModel,
+        size: isGeminiModel(settings.defaultModel) ? getDefaultGeminiSize() : getDefaultImageSize(conversation.ratio)
+      })
+    }
+    get().notify('已删除服务配置')
   },
   importReferenceFiles: async (files) => {
     const id = get().activeConversationId
@@ -346,11 +409,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   applyPromptTemplate: async (template) => {
     const state = get()
     let conversation = state.conversations.find((item) => item.id === state.activeConversationId) || null
+    const model = template.model || DEFAULT_MODEL
+    const size = normalizeImageSizeForModel(model, template.ratio, template.resolution)
     if (!conversation) {
       await get().createConversation(
         {
+          model,
           ratio: template.ratio,
-          size: template.resolution || getDefaultImageSize(template.ratio),
+          size,
           quality: template.quality
         },
         { silent: true }
@@ -361,8 +427,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const patch: ConversationUpdate = {
       draftPrompt: template.prompt,
+      model,
       ratio: template.ratio,
-      size: template.resolution || getDefaultImageSize(template.ratio),
+      size,
       quality: template.quality
     }
     if (conversation.title === '新会话') {
@@ -416,15 +483,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     const conversation = state.conversations.find((item) => item.id === state.activeConversationId)
     if (!conversation) return
     const generationStartedAt = Date.now()
+    const rawModel = conversation.model.trim() || state.settings?.defaultModel || DEFAULT_MODEL
+    if (state.settings && getModelProvider(rawModel) !== state.settings.provider) {
+      const providerName = getModelProvider(rawModel) === 'gemini' ? 'Gemini' : 'GPT'
+      get().notify(`当前模板使用 ${providerName} 模型，请先在服务配置中切换平台`)
+      return
+    }
     set({ generationClockMs: generationStartedAt })
     startGenerationClock()
     const prompt = conversation.draftPrompt.trim()
+    const model = resolveConversationModelForSettings(conversation.model, state.settings)
     const input: GenerateImageInput = {
       conversationId: conversation.id,
       prompt,
-      model: conversation.model || state.settings?.defaultModel || DEFAULT_MODEL,
+      model,
       ratio: conversation.ratio,
-      size: conversation.size || getDefaultImageSize(conversation.ratio),
+      size: normalizeImageSizeForModel(model, conversation.ratio, conversation.size),
       quality: conversation.quality,
       n: conversation.n,
       outputCompression: conversation.outputCompression ?? undefined,
@@ -433,6 +507,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       stream: conversation.stream,
       partialImages: conversation.stream && conversation.partialImages ? conversation.partialImages : undefined,
       inputFidelity: conversation.inputFidelity ?? undefined,
+      referenceImageMode: conversation.referenceImageMode,
       maxRetries: conversation.maxRetries,
       generationTimeoutSeconds: conversation.generationTimeoutSeconds,
       outputFormat: conversation.outputFormat || DEFAULT_IMAGE_OUTPUT_FORMAT,
@@ -638,7 +713,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       draftPrompt: item.prompt,
       model: item.model,
       ratio: item.ratio,
-      size: item.size || getDefaultImageSize(item.ratio),
+      size: item.size ? normalizeImageSizeForModel(item.model, item.ratio, item.size) : getDefaultSizeForModel(item.model, item.ratio),
       quality: item.quality
     })
     const conversations = await window.pixai.conversation.list()

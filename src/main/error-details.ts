@@ -28,6 +28,7 @@ export function createErrorDetails(
       inputFidelity: input.inputFidelity ?? null,
       generationTimeoutSeconds: input.generationTimeoutSeconds ?? null,
       referenceImageIds: input.referenceImageIds ?? [],
+      referenceImageMode: input.referenceImageMode ?? 'combined',
       promptLength: input.prompt.length,
       promptPreview: input.prompt.slice(0, 300),
       referenceImageCount: input.referenceImageIds?.length || 0

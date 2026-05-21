@@ -7,6 +7,8 @@ export type ImageInputFidelity = 'low' | 'high'
 export type ImageStatus = 'succeeded' | 'failed'
 export type GenerationRunStatus = 'running' | ImageStatus
 export type GenerationMode = 'text-to-image' | 'image-to-image'
+export type ReferenceImageMode = 'combined' | 'per-reference'
+export type ApiProvider = 'gpt' | 'gemini'
 export type GenerationRunRetryFailure = {
   errorMessage: string
   errorDetails: string
@@ -44,6 +46,7 @@ export type GenerateImageInput = {
   partialImages?: number
   inputFidelity?: ImageInputFidelity
   referenceImageIds?: string[]
+  referenceImageMode?: ReferenceImageMode
   maxRetries?: number
   generationTimeoutSeconds?: number
 }
@@ -69,6 +72,7 @@ export type Conversation = {
   stream: boolean
   partialImages: number | null
   inputFidelity: ImageInputFidelity | null
+  referenceImageMode: ReferenceImageMode
   maxRetries: number
   generationTimeoutSeconds: number
   autoSaveHistory: boolean
@@ -95,6 +99,7 @@ export type ConversationUpdate = Partial<
     | 'stream'
     | 'partialImages'
     | 'inputFidelity'
+    | 'referenceImageMode'
     | 'maxRetries'
     | 'generationTimeoutSeconds'
     | 'autoSaveHistory'
@@ -117,6 +122,7 @@ export type ConversationCreateInput = Partial<
     | 'stream'
     | 'partialImages'
     | 'inputFidelity'
+    | 'referenceImageMode'
     | 'maxRetries'
     | 'generationTimeoutSeconds'
     | 'autoSaveHistory'
@@ -170,6 +176,22 @@ export type GenerationRun = {
 }
 
 export type ProviderSettings = {
+  id: string
+  name: string
+  provider: ApiProvider
+  baseURL: string
+  apiKeyStored: boolean
+  defaultModel: string
+  promptModel: string
+  insecureStorage: boolean
+  activeProfileId: string
+  profiles: ProviderProfile[]
+}
+
+export type ProviderProfile = {
+  id: string
+  name: string
+  provider: ApiProvider
   baseURL: string
   apiKeyStored: boolean
   defaultModel: string
@@ -178,11 +200,15 @@ export type ProviderSettings = {
 }
 
 export type ProviderSettingsUpdate = {
+  name?: string
+  provider?: ApiProvider
   baseURL?: string
   apiKey?: string | null
   defaultModel?: string
   promptModel?: string
 }
+
+export type ProviderProfileCreateInput = ProviderSettingsUpdate
 
 export type GenerateImageResult = {
   run: GenerationRun
@@ -208,6 +234,9 @@ export type PixAIAPI = {
   settings: {
     get: () => Promise<ProviderSettings>
     update: (input: ProviderSettingsUpdate) => Promise<ProviderSettings>
+    createProfile: (input?: ProviderProfileCreateInput) => Promise<ProviderSettings>
+    selectProfile: (id: string) => Promise<ProviderSettings>
+    deleteProfile: (id: string) => Promise<ProviderSettings>
   }
   conversation: {
     list: () => Promise<Conversation[]>

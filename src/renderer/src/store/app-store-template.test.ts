@@ -37,14 +37,16 @@ describe('app store prompt template actions', () => {
       description: '测试描述',
       prompt: 'new prompt',
       tags: ['广告'],
+      model: 'gpt-image-2',
       ratio: '3:4',
       resolution: '768x1024',
-      quality: 'high',
+      quality: 'high'
     })
 
     expect(update).toHaveBeenCalledWith(conversation.id, {
       draftPrompt: 'new prompt',
       title: '测试模板',
+      model: 'gpt-image-2',
       ratio: '3:4',
       size: '768x1024',
       quality: 'high'
@@ -77,15 +79,56 @@ describe('app store prompt template actions', () => {
       description: '',
       prompt: 'high resolution prompt',
       tags: [],
+      model: 'gpt-image-2',
       ratio: '16:9',
       resolution: '3840x2160',
-      quality: 'high',
+      quality: 'high'
     })
 
     expect(update).toHaveBeenCalledWith(conversation.id, {
       draftPrompt: 'high resolution prompt',
+      model: 'gpt-image-2',
       ratio: '16:9',
       size: '3840x2160',
+      quality: 'high'
+    })
+  })
+
+  it('applies a Gemini template model and resolution', async () => {
+    const conversation = createConversation({ title: '已有会话', draftPrompt: '旧提示词' })
+    const update = vi.fn((_id: string, input: Partial<Conversation>) => Promise.resolve({ ...conversation, ...input }))
+    installPixaiMock({
+      conversation: {
+        create: vi.fn(),
+        update
+      }
+    })
+    useAppStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      view: 'prompts',
+      promptAssistantRunning: { inspire: false, enrich: false },
+      toast: null
+    })
+
+    await useAppStore.getState().applyPromptTemplate({
+      id: 'template-gemini',
+      title: 'Gemini 模板',
+      category: '商业海报',
+      description: '',
+      prompt: 'gemini prompt',
+      tags: [],
+      model: 'gemini-3-pro-image-preview',
+      ratio: '16:9',
+      resolution: '4K',
+      quality: 'high'
+    })
+
+    expect(update).toHaveBeenCalledWith(conversation.id, {
+      draftPrompt: 'gemini prompt',
+      model: 'gemini-3-pro-image-preview',
+      ratio: '16:9',
+      size: '4K',
       quality: 'high'
     })
   })
@@ -115,12 +158,14 @@ describe('app store prompt template actions', () => {
       description: '测试描述',
       prompt: 'prompt body',
       tags: ['产品'],
+      model: 'gpt-image-2',
       ratio: '1:1',
       resolution: '1024x1024',
-      quality: 'auto',
+      quality: 'auto'
     })
 
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'gpt-image-2',
       ratio: '1:1',
       size: '1024x1024',
       quality: 'auto'
@@ -128,6 +173,7 @@ describe('app store prompt template actions', () => {
     expect(update).toHaveBeenCalledWith(createdConversation.id, {
       draftPrompt: 'prompt body',
       title: '新模板',
+      model: 'gpt-image-2',
       ratio: '1:1',
       size: '1024x1024',
       quality: 'auto'
@@ -171,6 +217,7 @@ function createConversation(input: Partial<Conversation> = {}): Conversation {
     stream: false,
     partialImages: 0,
     inputFidelity: null,
+    referenceImageMode: 'combined',
     maxRetries: 0,
     generationTimeoutSeconds: 300,
     autoSaveHistory: true,
