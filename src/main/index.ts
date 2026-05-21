@@ -72,6 +72,9 @@ function registerImageProtocol(): void {
 function registerIpc(): void {
   ipcMain.handle('settings:get', () => settings.getPublicSettings())
   ipcMain.handle('settings:update', (_event, input: ProviderSettingsUpdate) => settings.update(input))
+  ipcMain.handle('settings:create-profile', (_event, input?: ProviderSettingsUpdate) => settings.createProfile(input))
+  ipcMain.handle('settings:select-profile', (_event, id: string) => settings.selectProfile(id))
+  ipcMain.handle('settings:delete-profile', (_event, id: string) => settings.deleteProfile(id))
 
   ipcMain.handle('conversation:list', () => database.listConversations())
   ipcMain.handle('conversation:create', (_event, input?: ConversationCreateInput) => database.createConversation(input))

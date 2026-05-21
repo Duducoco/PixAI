@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from 'react'
-import { CircleHelp, Settings } from 'lucide-react'
+import { CircleHelp, Plus, Settings, Trash2 } from 'lucide-react'
 import {
   DEFAULT_API_PROVIDER,
   DEFAULT_GPT_BASE_URL,
@@ -43,9 +43,19 @@ const providerOptions: Array<{ value: ApiProvider; label: string }> = [
 ]
 
 export function SettingsPanel(): JSX.Element {
-  const { settings, conversations, activeConversationId, updateActiveConversation, updateSettings } = useAppStore()
+  const {
+    settings,
+    conversations,
+    activeConversationId,
+    updateActiveConversation,
+    updateSettings,
+    createSettingsProfile,
+    selectSettingsProfile,
+    deleteSettingsProfile
+  } = useAppStore()
   const conversation = conversations.find((item) => item.id === activeConversationId) || null
   const isImageToImage = (conversation?.referenceImages.length || 0) > 0
+  const [profileName, setProfileName] = useState(settings?.name || '')
   const [provider, setProvider] = useState<ApiProvider>(settings?.provider || DEFAULT_API_PROVIDER)
   const [baseURL, setBaseURL] = useState(settings?.baseURL || DEFAULT_GPT_BASE_URL)
   const [defaultModel, setDefaultModel] = useState(settings?.defaultModel || DEFAULT_MODEL)
@@ -55,6 +65,7 @@ export function SettingsPanel(): JSX.Element {
   useEffect(() => {
     if (settings) {
       const nextProvider = settings.provider || getModelProvider(settings.defaultModel)
+      setProfileName(settings.name)
       setProvider(nextProvider)
       setBaseURL(settings.baseURL || getProviderBaseURL(nextProvider))
       setDefaultModel(normalizeProviderModel(nextProvider, settings.defaultModel))
@@ -66,7 +77,8 @@ export function SettingsPanel(): JSX.Element {
 
   const selectedDefaultModel = normalizeProviderModel(provider, defaultModel)
   const activeProvider = settings?.provider || provider
-  const conversationModel = normalizeProviderModel(activeProvider, conversation.model || getProviderDefaultModel(activeProvider))
+  const conversationModel = conversation.model || getProviderDefaultModel(activeProvider)
+  const conversationProvider = getModelProvider(conversationModel)
   const geminiMode = isGeminiModel(conversationModel)
   const sizeOptions = geminiMode ? getGeminiSizeOptions() : getImageSizeOptions(conversation.ratio)
   const selectedSize = geminiMode
@@ -78,9 +90,58 @@ export function SettingsPanel(): JSX.Element {
       <div className="config-stack">
         <section className="panel">
           <h3>
-            服务配置
+            当前服务
             <span className={`pill ${settings?.apiKeyStored ? 'good' : 'warn'}`}>{settings?.apiKeyStored ? '已配置' : '未配置'}</span>
           </h3>
+          {settings ? (
+            <label className="field">
+              <span>服务配置</span>
+              <GallerySelect
+                value={settings.activeProfileId}
+                options={settings.profiles.map((profile) => ({
+                  value: profile.id,
+                  label: `${profile.name} · ${profile.provider === 'gemini' ? 'Gemini' : 'GPT'}`
+                }))}
+                ariaLabel="选择服务配置"
+                className="settings-select"
+                onChange={(id) => void selectSettingsProfile(id)}
+              />
+            </label>
+          ) : null}
+          <div className="service-profile-actions">
+            <button
+              type="button"
+              onClick={() => void createSettingsProfile({
+                name: 'Gemini 默认',
+                provider: 'gemini',
+                defaultModel: getProviderDefaultModel('gemini')
+              })}
+            >
+              <Plus size={14} />
+              新增 Gemini
+            </button>
+            <button
+              type="button"
+              onClick={() => void createSettingsProfile({
+                name: 'GPT 默认',
+                provider: 'gpt',
+                defaultModel: getProviderDefaultModel('gpt')
+              })}
+            >
+              <Plus size={14} />
+              新增 GPT
+            </button>
+          </div>
+          <details className="service-profile-editor">
+            <summary>
+              <span>编辑当前服务配置</span>
+              <span className="pill tiny">{settings?.name || '默认配置'}</span>
+            </summary>
+            <div className="service-profile-editor-body">
+              <label className="field">
+                <span>名称</span>
+                <input className="input-control" value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+              </label>
           <label className="field">
             <span>平台</span>
             <GallerySelect
@@ -129,6 +190,7 @@ export function SettingsPanel(): JSX.Element {
             onClick={() => {
               void (async () => {
                 await updateSettings({
+                  name: profileName,
                   provider,
                   baseURL,
                   defaultModel: selectedDefaultModel,
@@ -146,8 +208,23 @@ export function SettingsPanel(): JSX.Element {
             }}
           >
             <Settings size={15} />
-            保存服务配置
+            保存当前配置
           </button>
+              {settings && settings.profiles.length > 1 ? (
+                <button
+                  type="button"
+                  className="danger full"
+                  onClick={() => {
+                    if (!window.confirm(`确认删除「${settings.name}」吗？`)) return
+                    void deleteSettingsProfile(settings.activeProfileId)
+                  }}
+                >
+                  <Trash2 size={15} />
+                  删除当前配置
+                </button>
+              ) : null}
+            </div>
+          </details>
         </section>
         <section className="panel">
           <h3>当前会话参数</h3>
@@ -155,7 +232,7 @@ export function SettingsPanel(): JSX.Element {
             <span>模型</span>
             <GallerySelect
               value={conversationModel}
-              options={getProviderModelOptions(activeProvider).map((value) => ({ value, label: IMAGE_MODEL_LABELS[value] || value }))}
+              options={getProviderModelOptions(conversationProvider).map((value) => ({ value, label: IMAGE_MODEL_LABELS[value] || value }))}
               ariaLabel="选择当前会话模型"
               className="settings-select"
               onChange={(model) => void updateActiveConversation({

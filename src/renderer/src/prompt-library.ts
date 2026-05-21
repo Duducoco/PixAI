@@ -1,5 +1,15 @@
 import type { ImageQuality, ImageRatio } from '@shared/types'
-import { getDefaultImageSize, getImageSizeOptions } from '@shared/image-options'
+import {
+  DEFAULT_MODEL,
+  IMAGE_MODEL_LABELS,
+  getDefaultImageSize,
+  getDefaultSizeForModel,
+  getGeminiSizeOptions,
+  getImageSizeOptions,
+  getProviderModelOptions,
+  isGeminiModel,
+  normalizeImageSizeForModel
+} from '@shared/image-options'
 
 export type PromptTemplate = {
   id: string
@@ -8,6 +18,7 @@ export type PromptTemplate = {
   description: string
   prompt: string
   tags: string[]
+  model: string
   ratio: ImageRatio
   resolution: string
   quality: ImageQuality
@@ -24,20 +35,23 @@ type LegacyPromptTemplateRecord = Partial<PromptTemplate> & {
   sourceUrl?: unknown
 }
 
-export function createEmptyPromptTemplateInput(): PromptTemplateInput {
+export function createEmptyPromptTemplateInput(defaults: Partial<Pick<PromptTemplateInput, 'model' | 'ratio' | 'resolution' | 'quality'>> = {}): PromptTemplateInput {
+  const model = normalizePromptModel(defaults.model)
+  const ratio = isImageRatio(defaults.ratio) ? defaults.ratio : '1:1'
   return {
     title: '',
     category: '',
     description: '',
     prompt: '',
     tags: [],
-    ratio: '1:1',
-    resolution: getDefaultImageSize('1:1'),
-    quality: 'auto'
+    model,
+    ratio,
+    resolution: normalizeResolution(model, ratio, defaults.resolution),
+    quality: isImageQuality(defaults.quality) ? defaults.quality : 'auto'
   }
 }
 
-export const PROMPT_TEMPLATES: PromptTemplate[] = [
+const BUILTIN_PROMPT_TEMPLATES: Array<Omit<PromptTemplate, 'model'>> = [
   {
     id: 'luxury-watch-ad',
     title: '奢华腕表广告',
@@ -172,11 +186,17 @@ export const PROMPT_TEMPLATES: PromptTemplate[] = [
   }
 ]
 
+export const PROMPT_TEMPLATES: PromptTemplate[] = BUILTIN_PROMPT_TEMPLATES.map((template) => ({
+  ...template,
+  model: DEFAULT_MODEL
+}))
+
 const PROMPT_LIBRARY_STORAGE_KEY = 'pixai.prompt-library.items.v1'
 
 export type PromptTemplateFilterOptions = {
   query?: string
   category?: string
+  model?: string
   ratio?: ImageRatio | 'all'
   quality?: ImageQuality | 'all'
 }
@@ -192,11 +212,21 @@ export function filterPromptTemplates<T extends PromptTemplate = PromptTemplate>
   const query = options.query?.trim().toLowerCase() || ''
   return templates.filter((template) => {
     if (options.category && options.category !== 'all' && template.category !== options.category) return false
+    if (options.model && options.model !== 'all' && template.model !== options.model) return false
     if (options.ratio && options.ratio !== 'all' && template.ratio !== options.ratio) return false
     if (options.quality && options.quality !== 'all' && template.quality !== options.quality) return false
     if (!query) return true
 
-    const haystack = [template.title, template.category, template.description, template.prompt, template.tags.join(' '), template.resolution]
+    const haystack = [
+      template.title,
+      template.category,
+      template.description,
+      template.prompt,
+      template.tags.join(' '),
+      template.model,
+      IMAGE_MODEL_LABELS[template.model] || '',
+      template.resolution
+    ]
       .join(' ')
       .toLowerCase()
 
@@ -251,6 +281,7 @@ export function clonePromptTemplate(template: PromptTemplate): PromptTemplateInp
     description: template.description,
     prompt: template.prompt,
     tags: [...template.tags],
+    model: template.model,
     ratio: template.ratio,
     resolution: template.resolution,
     quality: template.quality
@@ -270,6 +301,7 @@ function normalizePromptTemplate(input: unknown, id = createPromptTemplateId()):
   const description = safeText(record.description)
   const prompt = safeText(record.prompt) || safeText(record.promptZh)
   if (!title || !category || !prompt) return null
+  const model = normalizePromptModel(record.model)
   const ratio = isImageRatio(record.ratio) ? record.ratio : '1:1'
   const quality = isImageQuality(record.quality) ? record.quality : 'auto'
   return {
@@ -279,8 +311,9 @@ function normalizePromptTemplate(input: unknown, id = createPromptTemplateId()):
     description,
     prompt,
     tags: normalizeTags(record.tags),
+    model,
     ratio,
-    resolution: normalizeResolution(ratio, record.resolution),
+    resolution: normalizeResolution(model, ratio, record.resolution),
     quality
   }
 }
@@ -289,10 +322,20 @@ function normalizePromptLibraryItem(input: unknown): PromptLibraryItem | null {
   return normalizePromptTemplate(input, safeText((input as Partial<PromptTemplate> | null)?.id) || createPromptTemplateId())
 }
 
-function normalizeResolution(ratio: ImageRatio, value: unknown): string {
+function normalizePromptModel(value: unknown): string {
   const candidate = safeText(value)
-  if (candidate && getImageSizeOptions(ratio).some((option) => option.value === candidate)) return candidate
-  return getDefaultImageSize(ratio)
+  return getPromptTemplateModelOptions().includes(candidate) ? candidate : DEFAULT_MODEL
+}
+
+function getPromptTemplateModelOptions(): string[] {
+  return [...getProviderModelOptions('gpt'), ...getProviderModelOptions('gemini')]
+}
+
+function normalizeResolution(model: string, ratio: ImageRatio, value: unknown): string {
+  const candidate = safeText(value)
+  const options = isGeminiModel(model) ? getGeminiSizeOptions() : getImageSizeOptions(ratio)
+  if (candidate && options.some((option) => option.value === candidate)) return candidate
+  return normalizeImageSizeForModel(model, ratio, getDefaultSizeForModel(model, ratio))
 }
 
 function safeText(value: unknown): string {

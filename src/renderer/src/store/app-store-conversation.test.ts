@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Conversation } from '@shared/types'
+import type { Conversation, ProviderSettings } from '@shared/types'
 import { useAppStore } from './app-store'
 
 describe('app store conversation defaults', () => {
@@ -72,14 +72,14 @@ describe('app store conversation defaults', () => {
     const create = vi.fn(() => Promise.resolve(created))
     installWindow({ create })
     useAppStore.setState({
-      settings: {
+      settings: createSettings({
         provider: 'gemini',
         baseURL: 'https://generativelanguage.googleapis.com/v1beta',
         apiKeyStored: true,
         defaultModel: 'gemini-3-pro-image-preview',
         promptModel: 'gemini-3.1-flash',
         insecureStorage: false
-      },
+      }),
       conversations: [active],
       activeConversationId: active.id,
       runsByConversation: { [active.id]: [] },
@@ -146,7 +146,7 @@ describe('app store conversation defaults', () => {
       historyList: vi.fn(() => Promise.resolve([]))
     })
     useAppStore.setState({
-      settings: { provider: 'gpt', baseURL: 'https://example.test', apiKeyStored: true, defaultModel: 'gpt-image-2', promptModel: 'gpt-5.4-mini', insecureStorage: false },
+      settings: createSettings({ provider: 'gpt', baseURL: 'https://example.test', apiKeyStored: true, defaultModel: 'gpt-image-2', promptModel: 'gpt-5.4-mini', insecureStorage: false }),
       conversations: [active],
       activeConversationId: active.id,
       runsByConversation: { [active.id]: [] },
@@ -167,7 +167,7 @@ describe('app store conversation defaults', () => {
     }))
   })
 
-  it('generates with the configured provider model when the active conversation has an incompatible model', async () => {
+  it('does not generate when the active conversation model belongs to another provider', async () => {
     const active = createConversation({
       id: 'c1',
       draftPrompt: 'prompt',
@@ -205,14 +205,14 @@ describe('app store conversation defaults', () => {
       historyList: vi.fn(() => Promise.resolve([]))
     })
     useAppStore.setState({
-      settings: {
+      settings: createSettings({
         provider: 'gemini',
         baseURL: 'https://generativelanguage.googleapis.com/v1beta',
         apiKeyStored: true,
         defaultModel: 'gemini-3-pro-image-preview',
         promptModel: 'gemini-3.1-flash',
         insecureStorage: false
-      },
+      }),
       conversations: [active],
       activeConversationId: active.id,
       runsByConversation: { [active.id]: [] },
@@ -225,10 +225,8 @@ describe('app store conversation defaults', () => {
 
     await useAppStore.getState().generate()
 
-    expect(generate).toHaveBeenCalledWith(expect.objectContaining({
-      model: 'gemini-3-pro-image-preview',
-      size: '4K'
-    }))
+    expect(generate).not.toHaveBeenCalled()
+    expect(useAppStore.getState().toast).toBe('当前模板使用 GPT 模型，请先在服务配置中切换平台')
   })
 
   it('passes per-reference reference mode into image generation', async () => {
@@ -287,7 +285,7 @@ describe('app store conversation defaults', () => {
       historyList: vi.fn(() => Promise.resolve([]))
     })
     useAppStore.setState({
-      settings: { provider: 'gpt', baseURL: 'https://example.test', apiKeyStored: true, defaultModel: 'gpt-image-2', promptModel: 'gpt-5.4-mini', insecureStorage: false },
+      settings: createSettings({ provider: 'gpt', baseURL: 'https://example.test', apiKeyStored: true, defaultModel: 'gpt-image-2', promptModel: 'gpt-5.4-mini', insecureStorage: false }),
       conversations: [active],
       activeConversationId: active.id,
       runsByConversation: { [active.id]: [] },
@@ -335,6 +333,25 @@ function installWindow(conversation: {
     },
     configurable: true
   })
+}
+
+function createSettings(input: Partial<ProviderSettings> = {}): ProviderSettings {
+  const profile = {
+    id: input.id || 'profile-1',
+    name: input.name || '测试配置',
+    provider: input.provider || 'gpt',
+    baseURL: input.baseURL || 'https://api.openai.com',
+    apiKeyStored: input.apiKeyStored ?? true,
+    defaultModel: input.defaultModel || 'gpt-image-2',
+    promptModel: input.promptModel || 'gpt-5.4-mini',
+    insecureStorage: input.insecureStorage ?? false
+  } as ProviderSettings['profiles'][number]
+  return {
+    ...profile,
+    activeProfileId: profile.id,
+    profiles: [profile],
+    ...input
+  }
 }
 
 function createConversation(input: Partial<Conversation> = {}): Conversation {

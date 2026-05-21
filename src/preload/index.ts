@@ -6,6 +6,7 @@ import type {
   HistoryListOptions,
   PixAIAPI,
   PromptAssistInput,
+  ProviderProfileCreateInput,
   ProviderSettingsUpdate,
   ReferenceImageImportFile
 } from '@shared/types'
@@ -13,7 +14,10 @@ import type {
 const api: PixAIAPI = {
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
-    update: (input: ProviderSettingsUpdate) => ipcRenderer.invoke('settings:update', input)
+    update: (input: ProviderSettingsUpdate) => ipcRenderer.invoke('settings:update', input),
+    createProfile: (input?: ProviderProfileCreateInput) => ipcRenderer.invoke('settings:create-profile', input),
+    selectProfile: (id: string) => ipcRenderer.invoke('settings:select-profile', id),
+    deleteProfile: (id: string) => ipcRenderer.invoke('settings:delete-profile', id)
   },
   conversation: {
     list: () => ipcRenderer.invoke('conversation:list'),

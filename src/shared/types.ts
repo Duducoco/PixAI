@@ -176,6 +176,21 @@ export type GenerationRun = {
 }
 
 export type ProviderSettings = {
+  id: string
+  name: string
+  provider: ApiProvider
+  baseURL: string
+  apiKeyStored: boolean
+  defaultModel: string
+  promptModel: string
+  insecureStorage: boolean
+  activeProfileId: string
+  profiles: ProviderProfile[]
+}
+
+export type ProviderProfile = {
+  id: string
+  name: string
   provider: ApiProvider
   baseURL: string
   apiKeyStored: boolean
@@ -185,12 +200,15 @@ export type ProviderSettings = {
 }
 
 export type ProviderSettingsUpdate = {
+  name?: string
   provider?: ApiProvider
   baseURL?: string
   apiKey?: string | null
   defaultModel?: string
   promptModel?: string
 }
+
+export type ProviderProfileCreateInput = ProviderSettingsUpdate
 
 export type GenerateImageResult = {
   run: GenerationRun
@@ -216,6 +234,9 @@ export type PixAIAPI = {
   settings: {
     get: () => Promise<ProviderSettings>
     update: (input: ProviderSettingsUpdate) => Promise<ProviderSettings>
+    createProfile: (input?: ProviderProfileCreateInput) => Promise<ProviderSettings>
+    selectProfile: (id: string) => Promise<ProviderSettings>
+    deleteProfile: (id: string) => Promise<ProviderSettings>
   }
   conversation: {
     list: () => Promise<Conversation[]>
