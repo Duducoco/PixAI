@@ -35,7 +35,8 @@ import {
 
 describe('image options', () => {
   it('maps expanded ratios to API size strings', () => {
-    expect(IMAGE_RATIOS).toEqual(['1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', '21:9', '9:21'])
+    expect(IMAGE_RATIOS).toEqual(['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', '21:9', '9:21'])
+    expect(ratioToSize('auto')).toBe('auto')
     expect(ratioToSize('1:1')).toBe('1024x1024')
     expect(ratioToSize('3:2')).toBe('1536x1024')
     expect(ratioToSize('2:3')).toBe('1024x1536')
@@ -45,8 +46,10 @@ describe('image options', () => {
     expect(ratioToSize('9:16')).toBe('1008x1792')
     expect(ratioToSize('21:9')).toBe('1344x576')
     expect(ratioToSize('9:21')).toBe('576x1344')
+    expect(getDefaultImageSize('auto')).toBe('auto')
     expect(getDefaultImageSize('16:9')).toBe('1792x1008')
     expect(getDefaultImageSize('9:16')).toBe('1008x1792')
+    expect(getImageSizeOptions('auto')).toEqual([{ value: 'auto', label: '自动' }])
     expect(getImageSizeOptions('16:9').at(-1)?.value).toBe('3840x2160')
   })
 
@@ -96,6 +99,8 @@ describe('image options', () => {
   })
 
   it('normalizes image sizes for the selected model family', () => {
+    expect(normalizeImageSizeForModel('gpt-image-2', 'auto', '')).toBe('auto')
+    expect(normalizeImageSizeForModel('gpt-image-2', 'auto', '1792x1008')).toBe('auto')
     expect(normalizeImageSizeForModel('gpt-image-2', '1:1', '4K')).toBe('1024x1024')
     expect(normalizeImageSizeForModel('gemini-3.1-flash-image-preview', '1:1', '1024x1024')).toBe('4K')
     expect(normalizeImageSizeForModel('gemini-3.1-flash-image-preview', '1:1', '2K')).toBe('2K')
@@ -127,6 +132,26 @@ describe('image options', () => {
       size: '1536x1024',
       quality: 'auto',
       n: 2
+    })
+  })
+
+  it('maps GPT auto ratio to auto image size in request bodies', () => {
+    expect(
+      buildImageRequestBody({
+        conversationId: 'c1',
+        prompt: 'automatic framing',
+        model: 'gpt-image-2',
+        ratio: 'auto',
+        size: 'auto',
+        quality: 'auto',
+        n: 1
+      })
+    ).toEqual({
+      prompt: 'automatic framing',
+      model: 'gpt-image-2',
+      size: 'auto',
+      quality: 'auto',
+      n: 1
     })
   })
 

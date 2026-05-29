@@ -64,6 +64,7 @@ function compareByTimeDesc(a: ImageHistoryItem, b: ImageHistoryItem): number {
 }
 
 function parseRatioValue(ratio: ImageRatio): number {
+  if (ratio === 'auto') return -1
   const [widthText, heightText] = ratio.split(':')
   const width = Number(widthText)
   const height = Number(heightText)

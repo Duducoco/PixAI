@@ -31,7 +31,7 @@ export const DEFAULT_IMAGE_OUTPUT_FORMAT: ImageOutputFormat = 'png'
 export const DEFAULT_IMAGE_MAX_RETRIES = 0
 export const DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS = 300
 export const MAX_IMAGE_MAX_RETRIES = 10
-export const IMAGE_RATIOS: ImageRatio[] = ['1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', '21:9', '9:21']
+export const IMAGE_RATIOS: ImageRatio[] = ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', '21:9', '9:21']
 export const IMAGE_QUALITIES: GenerateImageInput['quality'][] = ['auto', 'low', 'medium', 'high']
 export const IMAGE_OUTPUT_FORMATS: ImageOutputFormat[] = ['jpeg', 'png', 'webp']
 export const IMAGE_BACKGROUNDS: ImageBackground[] = ['auto', 'opaque']
@@ -66,6 +66,7 @@ export type ImageSizeOption = {
   label: string
 }
 
+const autoImageSizeOption: ImageSizeOption = { value: 'auto', label: '自动' }
 type FixedImageRatio = Exclude<ImageRatio, 'auto'>
 
 const imageSizeOptionsByRatio: Record<FixedImageRatio, ImageSizeOption[]> = {
@@ -132,10 +133,11 @@ const imageSizeOptionsByRatio: Record<FixedImageRatio, ImageSizeOption[]> = {
 }
 
 export function getImageSizeOptions(ratio: ImageRatio): ImageSizeOption[] {
-  return imageSizeOptionsByRatio[ratio === 'auto' ? '1:1' : ratio]
+  return ratio === 'auto' ? [autoImageSizeOption] : imageSizeOptionsByRatio[ratio]
 }
 
 export function getDefaultImageSize(ratio: ImageRatio): string {
+  if (ratio === 'auto') return autoImageSizeOption.value
   return getImageSizeOptions(ratio).find((option) => option.label.startsWith('标准'))?.value
     || getImageSizeOptions(ratio)[0]?.value
     || ratioToSize(ratio)
@@ -154,6 +156,9 @@ export function normalizeImageSizeForModel(model: string, ratio: ImageRatio, siz
   if (isGeminiModel(model)) {
     return getGeminiSizeOptions().some((option) => option.value === trimmed) ? trimmed : getDefaultGeminiSize()
   }
+  if (ratio === 'auto') {
+    return trimmed === autoImageSizeOption.value ? trimmed : getDefaultImageSize(ratio)
+  }
   return isImageSizeCompatible(ratio, trimmed) ? trimmed : getDefaultImageSize(ratio)
 }
 
@@ -170,7 +175,7 @@ const ratioSizeMap: Record<FixedImageRatio, string> = {
 }
 
 export function ratioToSize(ratio: ImageRatio): string {
-  return ratioSizeMap[ratio === 'auto' ? '1:1' : ratio]
+  return ratio === 'auto' ? autoImageSizeOption.value : ratioSizeMap[ratio]
 }
 
 export function formatImageQuality(quality: ImageQuality): string {

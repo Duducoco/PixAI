@@ -36,7 +36,7 @@ import { useAppStore } from '@renderer/store/app-store'
 import { GallerySelect } from '@renderer/components/gallery/GallerySelect'
 
 const ratios: ImageRatio[] = IMAGE_RATIOS
-const geminiRatios: ImageRatio[] = ['auto', ...IMAGE_RATIOS]
+const geminiRatios: ImageRatio[] = IMAGE_RATIOS
 const qualities: ImageQuality[] = IMAGE_QUALITIES
 const providerOptions: Array<{ value: ApiProvider; label: string }> = [
   { value: 'gpt', label: 'GPT' },

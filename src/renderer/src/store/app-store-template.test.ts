@@ -133,6 +133,45 @@ describe('app store prompt template actions', () => {
     })
   })
 
+  it('applies a GPT template with auto ratio and auto size', async () => {
+    const conversation = createConversation({ title: '已有会话', draftPrompt: '旧提示词' })
+    const update = vi.fn((_id: string, input: Partial<Conversation>) => Promise.resolve({ ...conversation, ...input }))
+    installPixaiMock({
+      conversation: {
+        create: vi.fn(),
+        update
+      }
+    })
+    useAppStore.setState({
+      conversations: [conversation],
+      activeConversationId: conversation.id,
+      view: 'prompts',
+      promptAssistantRunning: { inspire: false, enrich: false },
+      toast: null
+    })
+
+    await useAppStore.getState().applyPromptTemplate({
+      id: 'template-gpt-auto',
+      title: 'GPT 自动比例模板',
+      category: '商业海报',
+      description: '',
+      prompt: 'auto ratio prompt',
+      tags: [],
+      model: 'gpt-image-2',
+      ratio: 'auto',
+      resolution: 'auto',
+      quality: 'high'
+    })
+
+    expect(update).toHaveBeenCalledWith(conversation.id, {
+      draftPrompt: 'auto ratio prompt',
+      model: 'gpt-image-2',
+      ratio: 'auto',
+      size: 'auto',
+      quality: 'high'
+    })
+  })
+
   it('creates a new conversation when no conversation is active', async () => {
     const createdConversation = createConversation()
     const create = vi.fn(() => Promise.resolve(createdConversation))
