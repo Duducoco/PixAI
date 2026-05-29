@@ -348,7 +348,7 @@ function normalizeTags(value: unknown): string[] {
 }
 
 function isImageRatio(value: unknown): value is ImageRatio {
-  return typeof value === 'string' && ['1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', '21:9', '9:21'].includes(value)
+  return typeof value === 'string' && ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16', '21:9', '9:21'].includes(value)
 }
 
 function isImageQuality(value: unknown): value is ImageQuality {

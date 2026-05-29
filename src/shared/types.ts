@@ -1,4 +1,4 @@
-export type ImageRatio = '1:1' | '3:2' | '2:3' | '4:3' | '3:4' | '16:9' | '9:16' | '21:9' | '9:21'
+export type ImageRatio = 'auto' | '1:1' | '3:2' | '2:3' | '4:3' | '3:4' | '16:9' | '9:16' | '21:9' | '9:21'
 export type ImageQuality = 'auto' | 'low' | 'medium' | 'high'
 export type ImageOutputFormat = 'png' | 'jpeg' | 'webp'
 export type ImageBackground = 'auto' | 'opaque'

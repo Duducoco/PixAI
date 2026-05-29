@@ -25,6 +25,7 @@ const modelOptions: Array<GallerySelectOption<PromptTemplate['model']>> = [
 }))
 
 const ratioOptions: Array<GallerySelectOption<PromptTemplate['ratio']>> = [
+  { value: 'auto', label: 'auto' },
   { value: '1:1', label: '1:1' },
   { value: '3:2', label: '3:2' },
   { value: '2:3', label: '2:3' },

@@ -36,6 +36,7 @@ import { useAppStore } from '@renderer/store/app-store'
 import { GallerySelect } from '@renderer/components/gallery/GallerySelect'
 
 const ratios: ImageRatio[] = IMAGE_RATIOS
+const geminiRatios: ImageRatio[] = ['auto', ...IMAGE_RATIOS]
 const qualities: ImageQuality[] = IMAGE_QUALITIES
 const providerOptions: Array<{ value: ApiProvider; label: string }> = [
   { value: 'gpt', label: 'GPT' },
@@ -244,7 +245,7 @@ export function SettingsPanel(): JSX.Element {
           <div className="field">
             <span>图片比例</span>
             <div className="segmented">
-              {ratios.map((ratio) => (
+              {(geminiMode ? geminiRatios : ratios).map((ratio) => (
                 <button
                   key={ratio}
                   className={conversation.ratio === ratio ? 'on' : ''}

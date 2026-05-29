@@ -66,7 +66,9 @@ export type ImageSizeOption = {
   label: string
 }
 
-const imageSizeOptionsByRatio: Record<ImageRatio, ImageSizeOption[]> = {
+type FixedImageRatio = Exclude<ImageRatio, 'auto'>
+
+const imageSizeOptionsByRatio: Record<FixedImageRatio, ImageSizeOption[]> = {
   '1:1': [
     { value: '1024x1024', label: '标准 1024×1024' },
     { value: '1536x1536', label: '高清 1536×1536' },
@@ -130,7 +132,7 @@ const imageSizeOptionsByRatio: Record<ImageRatio, ImageSizeOption[]> = {
 }
 
 export function getImageSizeOptions(ratio: ImageRatio): ImageSizeOption[] {
-  return imageSizeOptionsByRatio[ratio]
+  return imageSizeOptionsByRatio[ratio === 'auto' ? '1:1' : ratio]
 }
 
 export function getDefaultImageSize(ratio: ImageRatio): string {
@@ -155,7 +157,7 @@ export function normalizeImageSizeForModel(model: string, ratio: ImageRatio, siz
   return isImageSizeCompatible(ratio, trimmed) ? trimmed : getDefaultImageSize(ratio)
 }
 
-const ratioSizeMap: Record<ImageRatio, string> = {
+const ratioSizeMap: Record<FixedImageRatio, string> = {
   '1:1': '1024x1024',
   '3:2': '1536x1024',
   '2:3': '1024x1536',
@@ -168,7 +170,7 @@ const ratioSizeMap: Record<ImageRatio, string> = {
 }
 
 export function ratioToSize(ratio: ImageRatio): string {
-  return ratioSizeMap[ratio]
+  return ratioSizeMap[ratio === 'auto' ? '1:1' : ratio]
 }
 
 export function formatImageQuality(quality: ImageQuality): string {

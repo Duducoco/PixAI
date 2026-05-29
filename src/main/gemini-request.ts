@@ -16,6 +16,7 @@ export type GeminiGenerateContentParams = {
 }
 
 const SUPPORTED_ASPECT_RATIOS: Record<string, string | null> = {
+  auto: null,
   '1:1': '1:1',
   '3:2': '3:2',
   '2:3': '2:3',
