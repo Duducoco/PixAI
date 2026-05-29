@@ -43,15 +43,27 @@ describe('image preview zoom helpers', () => {
     expect(getInitialPreviewZoomForArea(900, 820, 1000, 2000, 36)).toBeCloseTo(0.39, 2)
   })
 
+  it('allows the initial fit zoom to go below the interactive minimum for extreme aspect ratios', () => {
+    expect(getInitialPreviewZoomForArea(900, 820, 6000, 1200, 36)).toBeCloseTo(0.14, 2)
+    expect(getInitialPreviewZoom(1200, 760, 5000, 1000, {
+      widthRatio: 0.68,
+      heightRatio: 0.86,
+      maxWidth: 820,
+      maxHeight: 820
+    })).toBeCloseTo(0.16, 2)
+  })
+
   it('keeps zoom within the allowed range', () => {
     expect(clampPreviewZoom(0.1)).toBe(0.25)
     expect(clampPreviewZoom(1.5)).toBe(1.5)
     expect(clampPreviewZoom(6)).toBe(4)
+    expect(clampPreviewZoom(0.1, 0.14)).toBe(0.14)
   })
 
   it('zooms in and out from wheel input', () => {
     expect(getPreviewZoomAfterWheel(1, -120)).toBeCloseTo(1.15, 2)
     expect(getPreviewZoomAfterWheel(1, 120)).toBeCloseTo(0.85, 2)
+    expect(getPreviewZoomAfterWheel(0.14, 120, 0.14)).toBeCloseTo(0.14, 2)
   })
 
   it('formats preview zoom as a rounded percentage', () => {

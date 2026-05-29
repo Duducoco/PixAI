@@ -3,6 +3,7 @@ import { formatImageQuality } from '@shared/image-options'
 import type { ImageHistoryItem } from '@shared/types'
 
 const PREVIEW_MIN_ZOOM = 0.25
+const PREVIEW_FIT_MIN_ZOOM = 0.01
 const PREVIEW_MAX_ZOOM = 4
 const PREVIEW_WHEEL_STEP = 0.15
 
@@ -87,8 +88,9 @@ function padDatePart(value: number): string {
   return String(value).padStart(2, '0')
 }
 
-export function clampPreviewZoom(zoom: number): number {
-  return Math.min(PREVIEW_MAX_ZOOM, Math.max(PREVIEW_MIN_ZOOM, zoom))
+export function clampPreviewZoom(zoom: number, minZoom = PREVIEW_MIN_ZOOM): number {
+  const safeMinZoom = Math.min(PREVIEW_MAX_ZOOM, Math.max(PREVIEW_FIT_MIN_ZOOM, minZoom))
+  return Math.min(PREVIEW_MAX_ZOOM, Math.max(safeMinZoom, zoom))
 }
 
 export function getInitialPreviewZoom(
@@ -109,7 +111,7 @@ export function getInitialPreviewZoom(
   const availableWidth = Math.max(320, cappedWidth)
   const availableHeight = Math.max(240, cappedHeight)
   const fitZoom = Math.min(availableWidth / imageWidth, availableHeight / imageHeight)
-  return clampPreviewZoom(fitZoom)
+  return clampPreviewZoom(fitZoom, PREVIEW_FIT_MIN_ZOOM)
 }
 
 export function getInitialPreviewZoomForArea(
@@ -125,12 +127,12 @@ export function getInitialPreviewZoomForArea(
 
   const availableWidth = Math.max(1, areaWidth - padding)
   const availableHeight = Math.max(1, areaHeight - padding)
-  return clampPreviewZoom(Math.min(availableWidth / imageWidth, availableHeight / imageHeight))
+  return clampPreviewZoom(Math.min(availableWidth / imageWidth, availableHeight / imageHeight), PREVIEW_FIT_MIN_ZOOM)
 }
 
-export function getPreviewZoomAfterWheel(zoom: number, deltaY: number): number {
+export function getPreviewZoomAfterWheel(zoom: number, deltaY: number, minZoom = PREVIEW_MIN_ZOOM): number {
   const direction = deltaY > 0 ? -1 : 1
-  return clampPreviewZoom(zoom + direction * PREVIEW_WHEEL_STEP)
+  return clampPreviewZoom(zoom + direction * PREVIEW_WHEEL_STEP, minZoom)
 }
 
 export function formatPreviewZoom(zoom: number): string {

@@ -54,6 +54,7 @@ export function PreviewModal({
   const metadataRows = useMemo(() => getPreviewMetadataRows(item), [item])
   const canGoPrevious = currentIndex > 0
   const canGoNext = currentIndex < items.length - 1
+  const fitZoom = imageSize ? getPreviewFitZoom(imageSize, artSize) : 1
 
   useEffect(() => {
     setFavorite(item.favorite)
@@ -115,7 +116,7 @@ export function PreviewModal({
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
     event.preventDefault()
-    setZoom((value) => getPreviewZoomAfterWheel(value, event.deltaY))
+    setZoom((value) => getPreviewZoomAfterWheel(value, event.deltaY, fitZoom))
   }
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -191,11 +192,11 @@ export function PreviewModal({
         <div className="modal-head">
           <span>图片预览</span>
           <div className="mini-controls">
-            <button title="缩小" onClick={() => setZoom((value) => clampPreviewZoom(value - 0.15))}>
+            <button title="缩小" onClick={() => setZoom((value) => clampPreviewZoom(value - 0.15, fitZoom))}>
               <ZoomOut size={15} />
             </button>
             <span className="zoom-value">{formatPreviewZoom(zoom)}</span>
-            <button title="放大" onClick={() => setZoom((value) => clampPreviewZoom(value + 0.15))}>
+            <button title="放大" onClick={() => setZoom((value) => clampPreviewZoom(value + 0.15, fitZoom))}>
               <ZoomIn size={15} />
             </button>
             <button
